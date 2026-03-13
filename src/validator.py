@@ -28,6 +28,21 @@ DEFAULT_NON_PERSON_TERMS = {
     "amtsgericht köln",
 }
 
+ORGANIZATION_TERMS = {
+    "media",
+    "google",
+    "press",
+    "verlag",
+    "redaktion",
+    "service",
+    "kontakt",
+    "gmbh",
+    "ag",
+    "ltd",
+    "inc",
+    "holding",
+}
+
 GENERIC_PERSON_WORDS = {
     "team",
     "redaktion",
@@ -84,6 +99,8 @@ class Validator:
             return False
         if first_n in GENERIC_PERSON_WORDS or last_n in GENERIC_PERSON_WORDS:
             return False
+        if first_n in ORGANIZATION_TERMS or last_n in ORGANIZATION_TERMS:
+            return False
         if not PERSON_TOKEN_RE.fullmatch(first.strip()) or not PERSON_TOKEN_RE.fullmatch(last.strip()):
             return False
         return True
@@ -94,6 +111,19 @@ class Validator:
             return False
         return any(term in haystack for term in self.non_person_terms)
 
+
+    def _contains_hard_org_pattern(self, first: str, last: str, role: str) -> bool:
+        first_n = self._normalize_text(first)
+        last_n = self._normalize_text(last)
+        role_n = self._normalize_text(role)
+        # allow only if clear first/last structure and no organizational tokens
+        if self._looks_like_person_name(first, last) and first_n not in ORGANIZATION_TERMS and last_n not in ORGANIZATION_TERMS:
+            return False
+        for token in (first_n, last_n, role_n):
+            if token in ORGANIZATION_TERMS:
+                return True
+        return False
+
     def _is_plausible_phone(self, phone: str) -> bool:
         if not phone:
             return True
@@ -102,6 +132,10 @@ class Validator:
             return False
         digits = re.sub(r"\D", "", phone_s)
         if len(digits) < 7 or len(digits) > 15:
+            return False
+        if re.search(r"\d+\.\d+", phone_s):
+            return False
+        if phone_s.isdigit() and len(digits) < 10:
             return False
         if len(set(digits)) <= 2:
             return False
@@ -142,6 +176,8 @@ class Validator:
             return ValidationResult(False, "missing_or_invalid_name")
         if self._contains_non_person_terms(first, last, role):
             return ValidationResult(False, "contains_non_person_term")
+        if self._contains_hard_org_pattern(first, last, role):
+            return ValidationResult(False, "organization_like_name")
         if not email or not self._email_matches_name(email, first, last):
             return ValidationResult(False, "email_name_mismatch")
         if not self._is_plausible_phone(phone):
