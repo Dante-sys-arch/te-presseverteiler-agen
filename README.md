@@ -3,7 +3,7 @@
 Automatisiertes Monitoring, Qualitätssicherung und Update der MASTER DACH/LI/LUX Kontaktliste.
 
 ## Ziel
-Der Agent scannt stündlich 104 Medien-Impressumsseiten, erkennt Änderungen, gleicht sie mit der Master-Excel ab und erstellt einen Excel-Report zur menschlichen Freigabe.
+Der Agent scannt stündlich 104 Medien-Impressumsseiten, erkennt Änderungen, gleicht sie mit der Master-Excel (data/master/MASTER_DACHLILUX.xlsx) ab und erstellt einen Excel-Report zur menschlichen Freigabe.
 
 ## Kernprinzip
 Keine automatische Änderung der Master-Datei ohne explizite Freigabe.
