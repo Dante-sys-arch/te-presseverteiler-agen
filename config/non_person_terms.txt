@@ -1,0 +1,30 @@
+# Nicht-Personenbegriffe aus Fehlreports / Seitenelementen
+Allgemeine Zeitung
+Ihre Daten
+Ein Unternehmen
+Entdecken Sie
+Technische Betreuung
+Geschätzte Lesezeit
+New York
+Picture Press
+Handelsgericht Wien
+Zentrale Kontaktstellen
+Digital Service
+Die Frankfurter
+Vertrieb Einzelverkauf
+Amtsgericht Köln
+
+# Häufige Nicht-Personenbegriffe
+Impressum
+Datenschutz
+Kontakt
+Kundenservice
+Redaktion
+Ressort
+Behörde
+Abteilung
+Pressestelle
+Unternehmen
+Firma
+Produkt
+Formular
