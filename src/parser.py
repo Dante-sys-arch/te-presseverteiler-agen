@@ -19,8 +19,8 @@ ROLE_KEYWORDS = (
     "Ressort",
 )
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
-PHONE_RE = re.compile(r"(?:\+\d{1,3}[\s\-]?)?(?:\(?\d+\)?[\s\-/]?){5,}")
-NAME_RE = re.compile(r"\b([A-ZÄÖÜ][a-zäöüß]+)\s+([A-ZÄÖÜ][a-zäöüß-]+)\b")
+PHONE_CANDIDATE_RE = re.compile(r"(?:\+|\(?\d)[\d\s\-/().]{5,}\d")
+NAME_RE = re.compile(r"\b([A-ZÄÖÜ][a-zäöüß]+(?:-[A-ZÄÖÜ][a-zäöüß]+)?)\s+([A-ZÄÖÜ][a-zäöüß]+(?:-[A-ZÄÖÜ][a-zäöüß]+)?)\b")
 BLOCKED_NAME_TERMS = {
     "source",
     "sans",
@@ -34,9 +34,49 @@ BLOCKED_NAME_TERMS = {
     "editor",
     "journalist",
     "ressort",
+    "kontakt",
+    "service",
+    "digital",
+    "vertrieb",
+    "datenschutz",
+    "recht",
+    "formular",
+    "frankfurter",
 }
 BLOCKED_FULL_NAMES = {"source sans", "source serif"}
 GENERIC_MAILBOX_TERMS = {"info", "kontakt", "contact", "hello", "office", "redaktion", "kommunikation", "presse", "newsroom", "service", "support", "admin", "mail"}
+BLOCKED_ROLE_PHRASES = {
+    "zentrale kontaktstelle",
+    "digital service",
+    "kundenservice",
+    "vertrieb",
+    "rechtsabteilung",
+    "datenschutz",
+    "impressum",
+}
+BLOCKED_CONTEXT_TERMS = {
+    "agentur",
+    "amtsgericht",
+    "abteilung",
+    "behörde",
+    "bundes",
+    "department",
+    "kontakt",
+    "service",
+    "support",
+    "team",
+    "formular",
+    "redaktion",
+    "verlag",
+    "gmbh",
+    "ag",
+    "kg",
+    "mbh",
+    "stadt",
+    "land",
+    "frankfurter",
+    "digital",
+}
 
 
 @dataclass(frozen=True)
@@ -76,8 +116,24 @@ class Parser:
     def _is_plausible_phone(self, phone: str) -> bool:
         if not phone:
             return False
+        normalized = phone.strip()
+        if normalized.count("/") > 1:
+            return False
+        if normalized.endswith("/"):
+            return False
         digits = re.sub(r"\D", "", phone)
-        return 6 <= len(digits) <= 15
+        if len(digits) < 7 or len(digits) > 15:
+            return False
+        unique_digits = len(set(digits))
+        if unique_digits <= 2:
+            return False
+        if re.fullmatch(r"(\d)\1{6,}", digits):
+            return False
+        return True
+
+    def _normalize_phone(self, phone: str) -> str:
+        compact = re.sub(r"\s+", " ", phone).strip(" ,;.")
+        return compact
 
     def _is_plausible_name(self, vorname: str, nachname: str) -> bool:
         first = vorname.strip().lower()
@@ -91,17 +147,55 @@ class Parser:
             return False
         if len(first) < 2 or len(last) < 2:
             return False
+        if first in BLOCKED_CONTEXT_TERMS or last in BLOCKED_CONTEXT_TERMS:
+            return False
         return True
+
+    def _is_plausible_role(self, role: str) -> bool:
+        if not role:
+            return True
+        lower = role.strip().lower()
+        return lower not in BLOCKED_ROLE_PHRASES
+
+    def _is_blocked_name_context(self, window: str, first: str, last: str) -> bool:
+        lowered = re.sub(r"\s+", " ", window.lower())
+        pair = f"{first.lower()} {last.lower()}"
+        if pair in BLOCKED_FULL_NAMES:
+            return True
+        for term in BLOCKED_CONTEXT_TERMS:
+            if f"{term} {last.lower()}" in lowered or f"{first.lower()} {term}" in lowered:
+                return True
+        return False
 
     def _pick_name(self, window: str) -> tuple[str, str]:
         for first, last in NAME_RE.findall(window):
-            if self._is_plausible_name(first, last):
+            if self._is_plausible_name(first, last) and not self._is_blocked_name_context(window, first, last):
                 return first, last
         return "", ""
 
+    def _deduplicate(self, contacts: list[ParsedContact]) -> list[ParsedContact]:
+        deduped: dict[tuple[str, str, str], ParsedContact] = {}
+        for contact in contacts:
+            key = (
+                contact.email.strip().lower(),
+                contact.vorname.strip().lower(),
+                contact.nachname.strip().lower(),
+            )
+            existing = deduped.get(key)
+            if existing is None:
+                deduped[key] = contact
+                continue
+            # prefer richer record
+            current_score = int(bool(existing.telefon)) + int(bool(existing.rolle)) + int(bool(existing.anrede))
+            next_score = int(bool(contact.telefon)) + int(bool(contact.rolle)) + int(bool(contact.anrede))
+            if next_score > current_score:
+                deduped[key] = contact
+        return list(deduped.values())
+
     def _regex_parse(self, text: str) -> list[ParsedContact]:
         emails = [email for email in EMAIL_RE.findall(text) if self._is_plausible_email(email)]
-        phones = [phone.strip() for phone in PHONE_RE.findall(text) if self._is_plausible_phone(phone)]
+        phones = [self._normalize_phone(p) for p in PHONE_CANDIDATE_RE.findall(text)]
+        phones = [phone for phone in phones if self._is_plausible_phone(phone)]
 
         contacts: list[ParsedContact] = []
         for idx, email in enumerate(emails):
@@ -116,8 +210,14 @@ class Parser:
 
             if not self._is_plausible_name(vorname, nachname):
                 continue
+            if not self._is_plausible_role(rolle):
+                continue
 
-            window_phone_matches = [phone.strip() for phone in PHONE_RE.findall(window) if self._is_plausible_phone(phone)]
+            window_phone_matches = [
+                self._normalize_phone(p)
+                for p in PHONE_CANDIDATE_RE.findall(window)
+                if self._is_plausible_phone(p)
+            ]
             telefon = window_phone_matches[0] if window_phone_matches else (phones[idx] if idx < len(phones) else "")
             contacts.append(
                 ParsedContact(
@@ -130,7 +230,7 @@ class Parser:
                 )
             )
 
-        return contacts
+        return self._deduplicate(contacts)
 
     def _sanitize_contacts(self, contacts: list[ParsedContact]) -> list[ParsedContact]:
         sanitized: list[ParsedContact] = []
@@ -149,7 +249,7 @@ class Parser:
                     telefon=contact.telefon.strip() if self._is_plausible_phone(contact.telefon) else "",
                 )
             )
-        return sanitized
+        return self._deduplicate(sanitized)
 
     def _openai_fallback(self, text: str) -> list[ParsedContact]:
         if not self.openai_api_key:
