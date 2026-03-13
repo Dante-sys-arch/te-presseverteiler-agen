@@ -16,5 +16,16 @@ jobs:
           python-version: "3.11"
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Ensure runtime directories
+        run: mkdir -p reports snapshots backups
       - name: Run pipeline
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python src/pipeline.py
+      - name: Upload report artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: presseverteiler-report
+          path: |
+            reports/*.xlsx
+            snapshots/*.html
