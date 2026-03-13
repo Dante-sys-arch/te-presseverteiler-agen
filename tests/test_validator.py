@@ -7,6 +7,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from validator import Validator
 from scorer import Scorer
+from parser import Parser
 
 
 class ValidatorNegativeExamplesTest(unittest.TestCase):
@@ -79,6 +80,57 @@ class ValidatorNegativeExamplesTest(unittest.TestCase):
         )
         self.assertTrue(result.is_valid)
 
+
+
+
+class ParserAndScorerRegressionTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.parser = Parser()
+        self.validator = Validator()
+        self.scorer = Scorer()
+
+    def test_blocks_organization_names_netpoint_media_and_google_ireland(self) -> None:
+        for first, last in [("Netpoint", "Media"), ("Google", "Ireland")]:
+            with self.subTest(first=first, last=last):
+                result = self.validator.validate_record(
+                    {
+                        "vorname": first,
+                        "nachname": last,
+                        "rolle": "",
+                        "email": "max.mustermann@example.com",
+                        "telefon": "+49 30 1234567",
+                    }
+                )
+                self.assertFalse(result.is_valid)
+
+    def test_cleans_html_escaped_email_prefix_u003e(self) -> None:
+        cleaned = self.parser._clean_email_candidate("u003eknapp.michaela@trend.at")  # noqa: SLF001
+        self.assertEqual(cleaned, "knapp.michaela@trend.at")
+
+    def test_rejects_implausible_phone_examples(self) -> None:
+        invalid_phones = ["26054200", "20260313.3"]
+        for phone in invalid_phones:
+            with self.subTest(phone=phone):
+                self.assertFalse(self.parser._is_plausible_phone(phone))  # noqa: SLF001
+                self.assertFalse(self.validator._is_plausible_phone(phone))  # noqa: SLF001
+
+    def test_fuzzy_match_email_is_cleared_for_unplausible_match(self) -> None:
+        scored = self.scorer.score(
+            {
+                "Trend": [
+                    {
+                        "vorname": "Michaela",
+                        "nachname": "Knapp",
+                        "rolle": "Redakteurin",
+                        "email": "michaela.knapp@trend.at",
+                        "telefon": "+43 1 2345678",
+                        "fuzzy_match_score": 70,
+                        "fuzzy_match_email": "wrong.person@otherdomain.com",
+                    }
+                ]
+            }
+        )
+        self.assertEqual(scored["Trend"][0]["fuzzy_match_email"], "")
 
 class ScorerValidationIntegrationTest(unittest.TestCase):
     def test_scorer_filters_invalid_candidates(self) -> None:

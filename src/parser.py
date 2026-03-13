@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import html
 import os
 import re
 from typing import Any
@@ -79,6 +80,20 @@ BLOCKED_CONTEXT_TERMS = {
     "frankfurter",
     "digital",
 }
+ORGANIZATION_TERMS = {
+    "media",
+    "google",
+    "press",
+    "verlag",
+    "redaktion",
+    "service",
+    "kontakt",
+    "gmbh",
+    "ag",
+    "ltd",
+    "inc",
+    "holding",
+}
 
 
 @dataclass(frozen=True)
@@ -103,7 +118,7 @@ class Parser:
     def _is_plausible_email(self, email: str) -> bool:
         if not email:
             return False
-        email = email.strip().lower()
+        email = self._clean_email_candidate(email)
         if not EMAIL_RE.fullmatch(email):
             return False
         local, _, domain = email.partition("@")
@@ -116,16 +131,27 @@ class Parser:
             return False
         return True
 
+    def _clean_email_candidate(self, email: str) -> str:
+        cleaned = self._clean_text(email).strip().lower()
+        cleaned = re.sub(r"^(?:\\u)?0*3e", "", cleaned)
+        cleaned = re.sub(r"^(?:u003e|x3e|gt)+", "", cleaned)
+        cleaned = cleaned.lstrip(" >\\")
+        return cleaned
+
     def _is_plausible_phone(self, phone: str) -> bool:
         if not phone:
             return False
-        normalized = phone.strip()
+        normalized = str(phone).strip()
         if normalized.count("/") > 1:
             return False
         if normalized.endswith("/"):
             return False
-        digits = re.sub(r"\D", "", phone)
+        digits = re.sub(r"\D", "", normalized)
         if len(digits) < 7 or len(digits) > 15:
+            return False
+        if re.search(r"\d+\.\d+", normalized):
+            return False
+        if normalized.isdigit() and len(digits) < 10:
             return False
         unique_digits = len(set(digits))
         if unique_digits <= 2:
@@ -139,10 +165,14 @@ class Parser:
         return compact
 
     def _is_plausible_name(self, vorname: str, nachname: str) -> bool:
-        first = vorname.strip().lower()
-        last = nachname.strip().lower()
+        first_raw = vorname.strip()
+        last_raw = nachname.strip()
+        first = first_raw.lower()
+        last = last_raw.lower()
         full = f"{first} {last}".strip()
         if not first or not last:
+            return False
+        if any(t in {first, last} for t in ORGANIZATION_TERMS):
             return False
         if full in BLOCKED_FULL_NAMES:
             return False
@@ -152,7 +182,15 @@ class Parser:
             return False
         if first in BLOCKED_CONTEXT_TERMS or last in BLOCKED_CONTEXT_TERMS:
             return False
+        if not re.fullmatch(r"[A-ZÄÖÜ][a-zäöüß'\-]{1,}", first_raw):
+            return False
+        if not re.fullmatch(r"[A-ZÄÖÜ][a-zäöüß'\-]{1,}", last_raw):
+            return False
         return True
+
+    def _looks_like_organization_name(self, first: str, last: str) -> bool:
+        tokens = {first.strip().lower(), last.strip().lower()}
+        return any(token in ORGANIZATION_TERMS for token in tokens)
 
     def _is_plausible_role(self, role: str) -> bool:
         if not role:
@@ -172,9 +210,22 @@ class Parser:
 
     def _pick_name(self, window: str) -> tuple[str, str]:
         for first, last in NAME_RE.findall(window):
+            if self._looks_like_organization_name(first, last):
+                continue
             if self._is_plausible_name(first, last) and not self._is_blocked_name_context(window, first, last):
                 return first, last
         return "", ""
+
+    def _clean_text(self, text: str) -> str:
+        cleaned = str(text or "")
+        cleaned = cleaned.replace("\\u003e", ">")
+        cleaned = cleaned.replace("u003e", ">")
+        cleaned = cleaned.replace("\\u003c", "<")
+        cleaned = cleaned.replace("u003c", "<")
+        cleaned = cleaned.replace("\\/", "/")
+        cleaned = cleaned.replace("\\", "")
+        cleaned = html.unescape(cleaned)
+        return cleaned
 
     def _deduplicate(self, contacts: list[ParsedContact]) -> list[ParsedContact]:
         deduped: dict[tuple[str, str, str], ParsedContact] = {}
@@ -196,22 +247,26 @@ class Parser:
         return list(deduped.values())
 
     def _regex_parse(self, text: str) -> list[ParsedContact]:
-        emails = [email for email in EMAIL_RE.findall(text) if self._is_plausible_email(email)]
-        phones = [self._normalize_phone(p) for p in PHONE_CANDIDATE_RE.findall(text)]
+        normalized_text = self._clean_text(text)
+        emails = [self._clean_email_candidate(email) for email in EMAIL_RE.findall(normalized_text)]
+        emails = [email for email in emails if self._is_plausible_email(email)]
+        phones = [self._normalize_phone(p) for p in PHONE_CANDIDATE_RE.findall(normalized_text)]
         phones = [phone for phone in phones if self._is_plausible_phone(phone)]
 
         contacts: list[ParsedContact] = []
         for idx, email in enumerate(emails):
-            pos = text.find(email)
+            pos = normalized_text.find(email)
             window_start = max(0, pos - 250)
-            window_end = min(len(text), pos + 250)
-            window = text[window_start:window_end]
+            window_end = min(len(normalized_text), pos + 250)
+            window = normalized_text[window_start:window_end]
 
             anrede = next((s for s in SALUTATIONS if s in window), "")
             rolle = next((r for r in ROLE_KEYWORDS if r.lower() in window.lower()), "")
             vorname, nachname = self._pick_name(window)
 
             if not self._is_plausible_name(vorname, nachname):
+                continue
+            if self._looks_like_organization_name(vorname, nachname):
                 continue
             if not self._is_plausible_role(rolle):
                 continue
@@ -240,7 +295,10 @@ class Parser:
         for contact in contacts:
             if not self._is_plausible_name(contact.vorname, contact.nachname):
                 continue
-            if contact.email and not self._is_plausible_email(contact.email):
+            if self._looks_like_organization_name(contact.vorname, contact.nachname):
+                continue
+            cleaned_email = self._clean_email_candidate(contact.email)
+            if cleaned_email and not self._is_plausible_email(cleaned_email):
                 continue
             sanitized.append(
                 ParsedContact(
@@ -248,7 +306,7 @@ class Parser:
                     vorname=contact.vorname.strip(),
                     nachname=contact.nachname.strip(),
                     rolle=contact.rolle.strip(),
-                    email=contact.email.strip(),
+                    email=cleaned_email,
                     telefon=contact.telefon.strip() if self._is_plausible_phone(contact.telefon) else "",
                 )
             )
@@ -307,6 +365,7 @@ class Parser:
         parsed: dict[str, list[ParsedContact]] = {}
         for medium, snapshot in raw_snapshots.items():
             text = getattr(snapshot, "content", "") if not isinstance(snapshot, str) else snapshot
+            text = self._clean_text(text)
             regex_contacts = self._sanitize_contacts(self._regex_parse(text))
             parsed[medium] = regex_contacts if regex_contacts else self._sanitize_contacts(self._openai_fallback(text))
         return parsed
