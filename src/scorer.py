@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import re
 
+from validator import Validator
+
 
 class Scorer:
     """Assign confidence score for each candidate suggestion."""
+
+    def __init__(self) -> None:
+        self.validator = Validator()
+
 
     BLOCKED_NAME_TERMS = {
         "source",
@@ -53,6 +59,10 @@ class Scorer:
         return True
 
     def _score_record(self, record: dict) -> float:
+        validation = self.validator.validate_record(record)
+        if not validation.is_valid:
+            return 0.0
+
         has_real_name = self._has_real_name(record)
         if not has_real_name:
             return 0.0

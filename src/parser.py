@@ -7,6 +7,8 @@ import os
 import re
 from typing import Any
 
+from validator import Validator
+
 
 SALUTATIONS = ("Herr", "Frau", "Mr", "Mrs", "Ms", "Dr")
 ROLE_KEYWORDS = (
@@ -96,6 +98,7 @@ class Parser:
 
     def __init__(self) -> None:
         self.openai_api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        self.validator = Validator()
 
     def _is_plausible_email(self, email: str) -> bool:
         if not email:
@@ -249,7 +252,13 @@ class Parser:
                     telefon=contact.telefon.strip() if self._is_plausible_phone(contact.telefon) else "",
                 )
             )
-        return self._deduplicate(sanitized)
+        deduped = self._deduplicate(sanitized)
+        valid = []
+        for contact in deduped:
+            result = self.validator.validate_record(asdict(contact))
+            if result.is_valid:
+                valid.append(contact)
+        return valid
 
     def _openai_fallback(self, text: str) -> list[ParsedContact]:
         if not self.openai_api_key:
@@ -298,8 +307,8 @@ class Parser:
         parsed: dict[str, list[ParsedContact]] = {}
         for medium, snapshot in raw_snapshots.items():
             text = getattr(snapshot, "content", "") if not isinstance(snapshot, str) else snapshot
-            regex_contacts = self._regex_parse(text)
-            parsed[medium] = regex_contacts if regex_contacts else self._openai_fallback(text)
+            regex_contacts = self._sanitize_contacts(self._regex_parse(text))
+            parsed[medium] = regex_contacts if regex_contacts else self._sanitize_contacts(self._openai_fallback(text))
         return parsed
 
 
