@@ -41,6 +41,7 @@ def _load_previous_scored(reports_dir: Path) -> dict[str, list[dict]]:
 def run_pipeline(base_dir: Path) -> Path:
     config_dir = base_dir / "config"
     reports_dir = base_dir / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
 
     master_file = base_dir / "data" / "master" / "MASTER_DACHLILUX.xlsx"
     crawler = Crawler(config_dir / "media_targets.csv", base_dir / "snapshots")
@@ -60,7 +61,8 @@ def run_pipeline(base_dir: Path) -> Path:
     diffs = diff_engine.compare(scored, previous=previous)
     _update_plan = updater.prepare(approved_changes={k: [] for k in scored})
 
-    return reporter.write(scored, diffs=diffs, crawl_info=raw)
+    report_path = reporter.write(scored, diffs=diffs, crawl_info=raw)
+    return report_path
 
 
 if __name__ == "__main__":
