@@ -27,9 +27,13 @@ class Reporter:
             rows: list[dict] = []
             for medium, records in payload.items():
                 for record in records:
-                    if not self.validator.validate_record(record).is_valid:
+                    cleaned = dict(record)
+                    if not self.validator._is_plausible_phone(str(cleaned.get("telefon") or "")):  # noqa: SLF001
+                        cleaned["telefon"] = ""
+                    validated = self.validator.validate_record(cleaned)
+                    if not validated.is_valid:
                         continue
-                    rows.append({"medium": medium, **record})
+                    rows.append({"medium": medium, **cleaned})
             pd.DataFrame(rows).to_excel(writer, sheet_name="scored_candidates", index=False)
 
             diff_rows: list[dict] = []
