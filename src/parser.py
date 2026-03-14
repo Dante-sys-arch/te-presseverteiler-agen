@@ -23,6 +23,7 @@ ROLE_KEYWORDS = (
 )
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 PHONE_CANDIDATE_RE = re.compile(r"(?:\+|\(?\d)[\d\s\-/().]{5,}\d")
+DATE_LIKE_PHONE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 NAME_RE = re.compile(r"\b([A-ZÄÖÜ][a-zäöüß]+(?:-[A-ZÄÖÜ][a-zäöüß]+)?)\s+([A-ZÄÖÜ][a-zäöüß]+(?:-[A-ZÄÖÜ][a-zäöüß]+)?)\b")
 BLOCKED_NAME_TERMS = {
     "source",
@@ -95,6 +96,15 @@ ORGANIZATION_TERMS = {
     "holding",
 }
 
+MEDIUM_ALLOWED_EMAIL_DOMAINS: dict[str, set[str]] = {
+    "börsen-zeitung": {"boersen-zeitung.de"},
+    "boersen-zeitung": {"boersen-zeitung.de"},
+    "institutional money": {"institutional-money.com"},
+    "finanzen.net": {"finanzen.net"},
+    "wirtschaftswoche": {"wiwo.de", "extern.wiwo.de"},
+    "wiwo": {"wiwo.de", "extern.wiwo.de"},
+}
+
 
 @dataclass(frozen=True)
 class ParsedContact:
@@ -136,12 +146,17 @@ class Parser:
         cleaned = re.sub(r"^(?:\\u)?0*3e", "", cleaned)
         cleaned = re.sub(r"^(?:u003e|x3e|gt)+", "", cleaned)
         cleaned = cleaned.lstrip(" >\\")
+        cleaned = re.sub(r"\.deu$", ".de", cleaned)
         return cleaned
 
     def _is_plausible_phone(self, phone: str) -> bool:
         if not phone:
             return False
         normalized = str(phone).strip()
+        if DATE_LIKE_PHONE_RE.fullmatch(normalized):
+            return False
+        if re.fullmatch(r"\d{3}-\d{4,}", normalized):
+            return False
         if normalized.count("/") > 1:
             return False
         if normalized.endswith("/"):
@@ -159,6 +174,13 @@ class Parser:
         if re.fullmatch(r"(\d)\1{6,}", digits):
             return False
         return True
+
+    def _is_email_allowed_for_medium(self, medium: str, email: str) -> bool:
+        allowed_domains = MEDIUM_ALLOWED_EMAIL_DOMAINS.get(medium.strip().lower())
+        if not allowed_domains:
+            return True
+        domain = email.partition("@")[2].lower()
+        return any(domain == allowed or domain.endswith(f".{allowed}") for allowed in allowed_domains)
 
     def _normalize_phone(self, phone: str) -> str:
         compact = re.sub(r"\s+", " ", phone).strip(" ,;.")
@@ -318,6 +340,9 @@ class Parser:
                 valid.append(contact)
         return valid
 
+    def _filter_medium_email_allowlist(self, medium: str, contacts: list[ParsedContact]) -> list[ParsedContact]:
+        return [contact for contact in contacts if self._is_email_allowed_for_medium(medium, contact.email)]
+
     def _openai_fallback(self, text: str) -> list[ParsedContact]:
         if not self.openai_api_key:
             return []
@@ -367,7 +392,8 @@ class Parser:
             text = getattr(snapshot, "content", "") if not isinstance(snapshot, str) else snapshot
             text = self._clean_text(text)
             regex_contacts = self._sanitize_contacts(self._regex_parse(text))
-            parsed[medium] = regex_contacts if regex_contacts else self._sanitize_contacts(self._openai_fallback(text))
+            contacts = regex_contacts if regex_contacts else self._sanitize_contacts(self._openai_fallback(text))
+            parsed[medium] = self._filter_medium_email_allowlist(medium, contacts)
         return parsed
 
 

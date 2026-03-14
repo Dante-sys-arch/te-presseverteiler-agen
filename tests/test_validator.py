@@ -159,5 +159,50 @@ class ScorerValidationIntegrationTest(unittest.TestCase):
         self.assertEqual(scored["Medium A"][0]["vorname"], "Anna")
 
 
+class ParserMediumGuardrailsRegressionTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.parser = Parser()
+
+    def test_normalizes_deu_tld_and_deduplicates_same_person(self) -> None:
+        text = """
+        Burkhard Bernhardt b.bernhardt@boersen-zeitung.de
+        Burkhard Bernhardt b.bernhardt@boersen-zeitung.deu
+        xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+        Thomas Hadeler t.hadeler@boersen-zeitung.de
+        Thomas Hadeler t.hadeler@boersen-zeitung.deu
+        """
+        parsed = self.parser.parse({"Börsen-Zeitung": text})
+        emails = sorted(contact.email for contact in parsed["Börsen-Zeitung"])
+        self.assertEqual(
+            emails,
+            [
+                "b.bernhardt@boersen-zeitung.de",
+                "t.hadeler@boersen-zeitung.de",
+            ],
+        )
+        self.assertNotIn("b.bernhardt@boersen-zeitung.deu", emails)
+        self.assertNotIn("t.hadeler@boersen-zeitung.deu", emails)
+
+    def test_filters_institutional_money_foreign_domain(self) -> None:
+        text = """
+        Dijana Matkovic matkovic@fondsprofessionell.com
+        """
+        parsed = self.parser.parse({"Institutional Money": text})
+        self.assertEqual(parsed["Institutional Money"], [])
+
+    def test_filters_finanzen_net_foreign_domains(self) -> None:
+        text = """
+        Kurt Ziegler ziegler@donaucapital.com
+        Ingo Heinrich i.heinrich@netpoint-media.de
+        """
+        parsed = self.parser.parse({"finanzen.net": text})
+        self.assertEqual(parsed["finanzen.net"], [])
+
+    def test_rejects_specific_invalid_phone_patterns(self) -> None:
+        for phone in ["100-0005", "2026-03-13"]:
+            with self.subTest(phone=phone):
+                self.assertFalse(self.parser._is_plausible_phone(phone))  # noqa: SLF001
+
+
 if __name__ == "__main__":
     unittest.main()
