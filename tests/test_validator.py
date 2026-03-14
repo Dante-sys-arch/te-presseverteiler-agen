@@ -114,6 +114,14 @@ class ParserAndScorerRegressionTest(unittest.TestCase):
                 self.assertFalse(self.parser._is_plausible_phone(phone))  # noqa: SLF001
                 self.assertFalse(self.validator._is_plausible_phone(phone))  # noqa: SLF001
 
+    def test_rejects_unreliable_remaining_phone_examples(self) -> None:
+        invalid_phones = ["1566381005", "44 468 20 27", "49 171 215 93 26"]
+        for phone in invalid_phones:
+            with self.subTest(phone=phone):
+                self.assertFalse(self.parser._is_plausible_phone(phone))  # noqa: SLF001
+                self.assertFalse(self.validator._is_plausible_phone(phone))  # noqa: SLF001
+                self.assertEqual(self.validator.normalize_phone(phone), "")
+
     def test_fuzzy_match_email_is_cleared_for_unplausible_match(self) -> None:
         scored = self.scorer.score(
             {

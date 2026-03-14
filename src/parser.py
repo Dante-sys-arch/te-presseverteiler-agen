@@ -161,19 +161,7 @@ class Parser:
             return False
         if normalized.endswith("/"):
             return False
-        digits = re.sub(r"\D", "", normalized)
-        if len(digits) < 7 or len(digits) > 15:
-            return False
-        if re.search(r"\d+\.\d+", normalized):
-            return False
-        if normalized.isdigit() and len(digits) < 10:
-            return False
-        unique_digits = len(set(digits))
-        if unique_digits <= 2:
-            return False
-        if re.fullmatch(r"(\d)\1{6,}", digits):
-            return False
-        return True
+        return bool(self.validator.normalize_phone(normalized))
 
     def _is_email_allowed_for_medium(self, medium: str, email: str) -> bool:
         allowed_domains = MEDIUM_ALLOWED_EMAIL_DOMAINS.get(medium.strip().lower())
@@ -185,6 +173,26 @@ class Parser:
     def _normalize_phone(self, phone: str) -> str:
         compact = re.sub(r"\s+", " ", phone).strip(" ,;.")
         return compact
+
+    def _extract_tel_href_phones(self, text: str) -> set[str]:
+        cleaned = self._clean_text(text)
+        matches = re.findall(r"tel:([^\"'\s>]+)", cleaned, flags=re.IGNORECASE)
+        normalized: set[str] = set()
+        for match in matches:
+            candidate = re.sub(r"[%;,].*$", "", match).strip()
+            candidate = candidate.replace("%2B", "+").replace("%20", " ")
+            phone = self.validator.normalize_phone(candidate, from_tel_link=True)
+            if phone:
+                normalized.add(phone)
+        return normalized
+
+    def _pick_reliable_phone(self, value: str, *, tel_phones: set[str]) -> str:
+        normalized = self.validator.normalize_phone(value)
+        if normalized and normalized in tel_phones:
+            return normalized
+        if normalized and str(value).strip().startswith(("+", "00")):
+            return normalized
+        return ""
 
     def _is_plausible_name(self, vorname: str, nachname: str) -> bool:
         first_raw = vorname.strip()
@@ -272,8 +280,10 @@ class Parser:
         normalized_text = self._clean_text(text)
         emails = [self._clean_email_candidate(email) for email in EMAIL_RE.findall(normalized_text)]
         emails = [email for email in emails if self._is_plausible_email(email)]
+        tel_phones = self._extract_tel_href_phones(text)
         phones = [self._normalize_phone(p) for p in PHONE_CANDIDATE_RE.findall(normalized_text)]
-        phones = [phone for phone in phones if self._is_plausible_phone(phone)]
+        phones = [self._pick_reliable_phone(phone, tel_phones=tel_phones) for phone in phones]
+        phones = [phone for phone in phones if phone]
 
         contacts: list[ParsedContact] = []
         for idx, email in enumerate(emails):
@@ -294,10 +304,10 @@ class Parser:
                 continue
 
             window_phone_matches = [
-                self._normalize_phone(p)
+                self._pick_reliable_phone(self._normalize_phone(p), tel_phones=tel_phones)
                 for p in PHONE_CANDIDATE_RE.findall(window)
-                if self._is_plausible_phone(p)
             ]
+            window_phone_matches = [phone for phone in window_phone_matches if phone]
             telefon = window_phone_matches[0] if window_phone_matches else (phones[idx] if idx < len(phones) else "")
             contacts.append(
                 ParsedContact(
@@ -329,7 +339,7 @@ class Parser:
                     nachname=contact.nachname.strip(),
                     rolle=contact.rolle.strip(),
                     email=cleaned_email,
-                    telefon=contact.telefon.strip() if self._is_plausible_phone(contact.telefon) else "",
+                    telefon=self._pick_reliable_phone(contact.telefon.strip(), tel_phones=set()),
                 )
             )
         deduped = self._deduplicate(sanitized)
