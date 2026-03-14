@@ -124,22 +124,48 @@ class Validator:
                 return True
         return False
 
+    def normalize_phone(self, phone: str, *, from_tel_link: bool = False) -> str:
+        """Return a conservative normalized phone number or empty string."""
+
+        if not phone:
+            return ""
+
+        phone_s = str(phone).strip()
+        if not PHONE_ALLOWED_RE.fullmatch(phone_s):
+            return ""
+        if re.search(r"\d+\.\d+", phone_s):
+            return ""
+
+        digits = re.sub(r"\D", "", phone_s)
+        if len(digits) < 8 or len(digits) > 15:
+            return ""
+        if len(set(digits)) <= 2:
+            return ""
+        if re.fullmatch(r"(\d)\1{6,}", digits):
+            return ""
+
+        # Free-text phones must be clearly international. Otherwise drop.
+        if phone_s.startswith("+"):
+            normalized = f"+{digits}"
+        elif phone_s.startswith("00"):
+            normalized = f"+{digits[2:]}" if len(digits) > 2 else ""
+        elif from_tel_link and not phone_s.isdigit():
+            # Conservative fallback for explicit tel: links.
+            normalized = digits
+        else:
+            return ""
+
+        if not normalized:
+            return ""
+        normalized_digits = re.sub(r"\D", "", normalized)
+        if len(normalized_digits) < 8 or len(normalized_digits) > 15:
+            return ""
+        return normalized
+
     def _is_plausible_phone(self, phone: str) -> bool:
         if not phone:
             return True
-        phone_s = str(phone).strip()
-        if not PHONE_ALLOWED_RE.fullmatch(phone_s):
-            return False
-        digits = re.sub(r"\D", "", phone_s)
-        if len(digits) < 7 or len(digits) > 15:
-            return False
-        if re.search(r"\d+\.\d+", phone_s):
-            return False
-        if phone_s.isdigit() and len(digits) < 10:
-            return False
-        if len(set(digits)) <= 2:
-            return False
-        return True
+        return bool(self.normalize_phone(phone))
 
     def _email_matches_name(self, email: str, first: str, last: str) -> bool:
         email = self._normalize_text(email)

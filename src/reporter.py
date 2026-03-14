@@ -28,8 +28,7 @@ class Reporter:
             for medium, records in payload.items():
                 for record in records:
                     cleaned = dict(record)
-                    if not self.validator._is_plausible_phone(str(cleaned.get("telefon") or "")):  # noqa: SLF001
-                        cleaned["telefon"] = ""
+                    cleaned["telefon"] = self.validator.normalize_phone(str(cleaned.get("telefon") or ""))
                     validated = self.validator.validate_record(cleaned)
                     if not validated.is_valid:
                         continue
