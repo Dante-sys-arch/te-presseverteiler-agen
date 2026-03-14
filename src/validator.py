@@ -43,6 +43,28 @@ GENERIC_NON_PERSON_TOKENS = {
     "media",
     "newsroom",
     "digital",
+    "navigation",
+    "seite",
+    "abo",
+    "aboservice",
+    "leserbriefe",
+    "archiv",
+    "webmaster",
+    "ombudsstelle",
+    "whistleblowing",
+    "tv",
+    "jugendschutz",
+    "dsa",
+    "events",
+    "picturedesk",
+    "forum",
+    "commercial",
+    "mitarbeiter",
+    "bereiche",
+    "nachricht",
+    "informationen",
+    "residence",
+    "tel",
 }
 
 GENERIC_NON_PERSON_PHRASES = {
@@ -66,6 +88,21 @@ GENERIC_NON_PERSON_PHRASES = {
     "vertrieb",
     "verkauf",
     "sales",
+    "chefredaktion",
+    "archiv",
+    "leserbriefe",
+    "aboservice",
+    "webmaster",
+    "ombudsstelle",
+    "whistleblowing",
+    "tv",
+    "jugendschutz",
+    "dsa",
+    "events",
+    "picturedesk",
+    "forum",
+    "gf",
+    "commercial",
 }
 
 GENERIC_MAILBOX_LOCALS = {
@@ -81,6 +118,26 @@ GENERIC_MAILBOX_LOCALS = {
     "unternehmen",
     "innovation",
     "geld",
+    "chefredaktion",
+    "archiv",
+    "leserbriefe",
+    "aboservice",
+    "webmaster",
+    "ombudsstelle",
+    "whistleblowing",
+    "tv",
+    "jugendschutz",
+    "dsa",
+    "events",
+    "picturedesk",
+    "forum",
+    "gf",
+    "commercial",
+    "service",
+    "kontakt",
+    "support",
+    "team",
+    "info",
 }
 
 BROKEN_EMAIL_TLDS = {
@@ -113,6 +170,53 @@ STREET_SUFFIXES = {
     "weg",
     "ring",
     "ufer",
+}
+
+ADDRESS_LOCATION_TOKENS = {
+    "street",
+    "str",
+    "stadt",
+    "city",
+    "residence",
+    "haus",
+    "building",
+    "plz",
+    "postfach",
+    "ort",
+    "land",
+}
+
+FUNCTION_ROLE_TOKENS = {
+    "mitarbeiter",
+    "bereich",
+    "bereiche",
+    "redakteur",
+    "redakteurin",
+    "leitung",
+    "manager",
+    "team",
+    "service",
+    "vertrieb",
+    "verkauf",
+    "support",
+    "kontakt",
+    "information",
+    "informationen",
+    "nachricht",
+    "tel",
+}
+
+FORM_LANGUAGE_TOKENS = {
+    "bitte",
+    "ihre",
+    "ihrer",
+    "ihren",
+    "deine",
+    "deiner",
+    "nachricht",
+    "informationen",
+    "senden",
+    "anfrage",
 }
 
 
@@ -260,6 +364,15 @@ class Validator:
             return True
         if any(term in full for term in self.non_person_terms):
             return True
+        tokens = [t for t in re.split(r"[^a-zäöüß]+", full) if t]
+        if not tokens:
+            return True
+        if any(t in ADDRESS_LOCATION_TOKENS for t in tokens):
+            return True
+        if any(t in FUNCTION_ROLE_TOKENS for t in tokens):
+            return True
+        if any(t in FORM_LANGUAGE_TOKENS for t in tokens):
+            return True
         return False
 
     def _domain_allowed(self, medium: str, domain: str) -> bool:
@@ -305,6 +418,16 @@ class Validator:
         if local_parts & GENERIC_MAILBOX_LOCALS:
             return True
         return False
+
+    def _canonical_email_key(self, email: str) -> str:
+        if not email or "@" not in email:
+            return ""
+        local, domain = email.split("@", 1)
+        local_n = re.sub(r"[^a-z0-9]", "", local.lower())
+        domain_n = domain.lower().strip()
+        if not local_n or not domain_n:
+            return ""
+        return f"{local_n}@{domain_n}"
 
 
     def _email_matches_name(self, email: str, first: str, last: str) -> bool:
@@ -366,7 +489,14 @@ class Validator:
         mismatch = sum(1 for a, b in zip(local_a, local_b) if a != b) + abs(len(local_a) - len(local_b))
         return mismatch <= 1
 
-    def validate_candidate(self, record: dict, *, medium: str, seen_emails_for_person: set[str]) -> ValidationResult:
+    def validate_candidate(
+        self,
+        record: dict,
+        *,
+        medium: str,
+        seen_emails_for_person: set[str],
+        seen_keys_for_person: set[str],
+    ) -> ValidationResult:
         first = str(record.get("vorname") or "").strip()
         last = str(record.get("nachname") or "").strip()
         email = self.clean_email(str(record.get("email") or ""))
@@ -383,7 +513,10 @@ class Validator:
             email_name_ok = self._email_matches_name(email, first, last)
 
         phone_ok = not str(record.get("telefon") or "").strip() or bool(phone)
-        duplicate = any(self._emails_are_obvious_typos(existing, email) for existing in seen_emails_for_person)
+        canonical_key = self._canonical_email_key(email)
+        duplicate = canonical_key in seen_keys_for_person or any(
+            self._emails_are_obvious_typos(existing, email) for existing in seen_emails_for_person
+        )
 
         status, confidence, reason = self._assign_status(
             is_person=is_person,
@@ -410,14 +543,21 @@ class Validator:
     def validate_records(self, medium: str, records: list[dict]) -> list[dict]:
         output: list[dict] = []
         seen_for_name: dict[tuple[str, str], set[str]] = {}
+        seen_keys_for_name: dict[tuple[str, str], set[str]] = {}
 
         for record in records:
             first = str(record.get("vorname") or "").strip().lower()
             last = str(record.get("nachname") or "").strip().lower()
             key = (first, last)
             seen_for_name.setdefault(key, set())
+            seen_keys_for_name.setdefault(key, set())
 
-            result = self.validate_candidate(record, medium=medium, seen_emails_for_person=seen_for_name[key])
+            result = self.validate_candidate(
+                record,
+                medium=medium,
+                seen_emails_for_person=seen_for_name[key],
+                seen_keys_for_person=seen_keys_for_name[key],
+            )
             if result.status == STATUS_REJECT:
                 continue
 
@@ -431,5 +571,6 @@ class Validator:
             }
             output.append(cleaned)
             seen_for_name[key].add(result.cleaned_email)
+            seen_keys_for_name[key].add(self._canonical_email_key(result.cleaned_email))
 
         return output

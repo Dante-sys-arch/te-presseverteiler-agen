@@ -7,7 +7,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from parser import Parser
 from scorer import Scorer
-from validator import STATUS_ACCEPT, STATUS_REVIEW, Validator
+from validator import STATUS_ACCEPT, STATUS_REJECT, STATUS_REVIEW, Validator
 
 
 class ValidatorRulesTest(unittest.TestCase):
@@ -79,6 +79,30 @@ class ValidatorRulesTest(unittest.TestCase):
         validated = self.validator.validate_records("Wirtschaftswoche", records)
         self.assertEqual(validated, [])
 
+    def test_rejects_location_or_address_like_name_terms(self) -> None:
+        records = [
+            {
+                "vorname": "Berlin",
+                "nachname": "Residence",
+                "email": "berlin.residence@wiwo.de",
+                "telefon": "+49 30 1234567",
+            }
+        ]
+        validated = self.validator.validate_records("Wirtschaftswoche", records)
+        self.assertEqual(validated, [])
+
+    def test_rejects_function_or_service_terms_as_name(self) -> None:
+        records = [
+            {
+                "vorname": "Mitarbeiter",
+                "nachname": "Informationen",
+                "email": "mitarbeiter.informationen@wiwo.de",
+                "telefon": "+49 30 1234567",
+            }
+        ]
+        validated = self.validator.validate_records("Wirtschaftswoche", records)
+        self.assertEqual(validated, [])
+
     def test_rejects_form_fragment_name(self) -> None:
         records = [
             {
@@ -103,6 +127,30 @@ class ValidatorRulesTest(unittest.TestCase):
         validated = self.validator.validate_records("Institutional Money", records)
         self.assertEqual(validated, [])
 
+    def test_real_person_with_generic_mailbox_is_rejected(self) -> None:
+        records = [
+            {
+                "vorname": "Anna",
+                "nachname": "Muster",
+                "email": "redaktion@wiwo.de",
+                "telefon": "+49 30 1234567",
+            }
+        ]
+        validated = self.validator.validate_records("Wirtschaftswoche", records)
+        self.assertEqual(validated, [])
+
+    def test_rejects_generic_mailbox_with_fake_person_candidate(self) -> None:
+        records = [
+            {
+                "vorname": "Forum",
+                "nachname": "Commercial",
+                "email": "forum@wiwo.de",
+                "telefon": "+49 30 1234567",
+            }
+        ]
+        validated = self.validator.validate_records("Wirtschaftswoche", records)
+        self.assertEqual(validated, [])
+
     def test_phone_date_values_are_blank_and_sent_to_review(self) -> None:
         records = [
             {
@@ -115,6 +163,19 @@ class ValidatorRulesTest(unittest.TestCase):
         validated = self.validator.validate_records("Wirtschaftswoche", records)
         self.assertEqual(validated[0]["telefon"], "")
         self.assertEqual(validated[0]["status"], STATUS_REVIEW)
+
+    def test_review_candidate_phone_is_blank_when_unreliable(self) -> None:
+        records = [
+            {
+                "vorname": "Anna",
+                "nachname": "Muster",
+                "email": "anna.otherbox@wiwo.de",
+                "telefon": "11.22",
+            }
+        ]
+        validated = self.validator.validate_records("Wirtschaftswoche", records)
+        self.assertEqual(validated[0]["status"], STATUS_REVIEW)
+        self.assertEqual(validated[0]["telefon"], "")
 
     def test_deduplicates_email_typos_for_same_person(self) -> None:
         records = [
@@ -134,6 +195,24 @@ class ValidatorRulesTest(unittest.TestCase):
         validated = self.validator.validate_records("Börsen-Zeitung", records)
         self.assertEqual(len(validated), 1)
 
+    def test_deduplicates_obviously_derived_mailbox_local_part(self) -> None:
+        records = [
+            {
+                "vorname": "Anna",
+                "nachname": "Muster",
+                "email": "anna.muster@wiwo.de",
+                "telefon": "+49 30 12345678",
+            },
+            {
+                "vorname": "Anna",
+                "nachname": "Muster",
+                "email": "annamuster@wiwo.de",
+                "telefon": "+49 30 12345678",
+            },
+        ]
+        validated = self.validator.validate_records("Wirtschaftswoche", records)
+        self.assertEqual(len(validated), 1)
+
 
 class ParserAndScorerIntegrationTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -148,10 +227,10 @@ class ParserAndScorerIntegrationTest(unittest.TestCase):
         parsed = self.parser.parse({"Wirtschaftswoche": text})
         records = [c.__dict__ for c in parsed["Wirtschaftswoche"]]
         scored = self.scorer.score({"Wirtschaftswoche": records})
-        self.assertEqual(len(scored["Wirtschaftswoche"]), 2)
+        self.assertEqual(len(scored["Wirtschaftswoche"]), 1)
         statuses = {entry["email"]: entry["status"] for entry in scored["Wirtschaftswoche"]}
         self.assertEqual(statuses["anna.muster@wiwo.de"], STATUS_ACCEPT)
-        self.assertEqual(statuses["digital.service@wiwo.de"], STATUS_REVIEW)
+        self.assertNotIn("digital.service@wiwo.de", statuses)
 
 
 if __name__ == "__main__":
