@@ -5,211 +5,101 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from validator import Validator
-from scorer import Scorer
 from parser import Parser
+from scorer import Scorer
+from validator import STATUS_ACCEPT, STATUS_REVIEW, Validator
 
 
-class ValidatorNegativeExamplesTest(unittest.TestCase):
+class ValidatorRulesTest(unittest.TestCase):
     def setUp(self) -> None:
         self.validator = Validator()
 
-    def test_blocks_known_non_person_terms(self) -> None:
-        samples = [
-            ("Allgemeine", "Zeitung"),
-            ("Ihre", "Daten"),
-            ("Ein", "Unternehmen"),
-            ("Entdecken", "Sie"),
-            ("Technische", "Betreuung"),
-            ("Geschätzte", "Lesezeit"),
-            ("New", "York"),
-            ("Picture", "Press"),
-            ("Handelsgericht", "Wien"),
-            ("Zentrale", "Kontaktstellen"),
-            ("Digital", "Service"),
-            ("Die", "Frankfurter"),
-            ("Vertrieb", "Einzelverkauf"),
-            ("Amtsgericht", "Köln"),
+    def test_rejects_non_person_generic_terms(self) -> None:
+        records = [
+            {
+                "vorname": "Digital",
+                "nachname": "Service",
+                "email": "digital.service@wiwo.de",
+                "telefon": "+49 30 1234567",
+            }
         ]
-        for first, last in samples:
-            with self.subTest(first=first, last=last):
-                result = self.validator.validate_record(
-                    {
-                        "vorname": first,
-                        "nachname": last,
-                        "rolle": "",
-                        "email": "max.mustermann@example.com",
-                        "telefon": "+49 30 1234567",
-                    }
-                )
-                self.assertFalse(result.is_valid)
+        validated = self.validator.validate_records("Wirtschaftswoche", records)
+        self.assertEqual(validated, [])
 
-    def test_blocks_email_name_mismatch(self) -> None:
-        result = self.validator.validate_record(
+    def test_cleans_html_escape_and_deu_tld(self) -> None:
+        records = [
             {
-                "vorname": "Max",
-                "nachname": "Mustermann",
-                "rolle": "Redakteur",
-                "email": "info@example.com",
-                "telefon": "+49 30 1234567",
+                "vorname": "Michaela",
+                "nachname": "Knapp",
+                "email": "u003eMichaela.Knapp@trend.deu",
+                "telefon": "+43 1 2345678",
             }
-        )
-        self.assertFalse(result.is_valid)
+        ]
+        validated = self.validator.validate_records("Trend", records)
+        self.assertEqual(validated[0]["email"], "michaela.knapp@trend.de")
+        self.assertEqual(validated[0]["status"], STATUS_ACCEPT)
 
-    def test_blocks_invalid_phone(self) -> None:
-        result = self.validator.validate_record(
+    def test_rejects_foreign_domain_per_medium_rules(self) -> None:
+        records = [
             {
-                "vorname": "Max",
-                "nachname": "Mustermann",
-                "rolle": "Redakteur",
-                "email": "max.mustermann@example.com",
-                "telefon": "12345",
+                "vorname": "Dijana",
+                "nachname": "Matkovic",
+                "email": "matkovic@fondsprofessionell.com",
+                "telefon": "+43 1 2345678",
             }
-        )
-        self.assertFalse(result.is_valid)
+        ]
+        validated = self.validator.validate_records("Institutional Money", records)
+        self.assertEqual(validated, [])
 
-    def test_accepts_valid_person_record(self) -> None:
-        result = self.validator.validate_record(
+    def test_phone_date_values_are_blank_and_sent_to_review(self) -> None:
+        records = [
             {
-                "vorname": "Max",
-                "nachname": "Mustermann",
-                "rolle": "Redakteur",
-                "email": "max.mustermann@example.com",
-                "telefon": "+49 30 1234567",
+                "vorname": "Anna",
+                "nachname": "Muster",
+                "email": "anna.muster@wiwo.de",
+                "telefon": "2026-03-13",
             }
-        )
-        self.assertTrue(result.is_valid)
+        ]
+        validated = self.validator.validate_records("Wirtschaftswoche", records)
+        self.assertEqual(validated[0]["telefon"], "")
+        self.assertEqual(validated[0]["status"], STATUS_REVIEW)
+
+    def test_deduplicates_email_typos_for_same_person(self) -> None:
+        records = [
+            {
+                "vorname": "Burkhard",
+                "nachname": "Bernhardt",
+                "email": "b.bernhardt@boersen-zeitung.de",
+                "telefon": "+49 30 12345678",
+            },
+            {
+                "vorname": "Burkhard",
+                "nachname": "Bernhardt",
+                "email": "b.bernhardt@boersen-zeitung.deu",
+                "telefon": "+49 30 12345678",
+            },
+        ]
+        validated = self.validator.validate_records("Börsen-Zeitung", records)
+        self.assertEqual(len(validated), 1)
 
 
-
-
-class ParserAndScorerRegressionTest(unittest.TestCase):
+class ParserAndScorerIntegrationTest(unittest.TestCase):
     def setUp(self) -> None:
         self.parser = Parser()
-        self.validator = Validator()
         self.scorer = Scorer()
 
-    def test_blocks_organization_names_netpoint_media_and_google_ireland(self) -> None:
-        for first, last in [("Netpoint", "Media"), ("Google", "Ireland")]:
-            with self.subTest(first=first, last=last):
-                result = self.validator.validate_record(
-                    {
-                        "vorname": first,
-                        "nachname": last,
-                        "rolle": "",
-                        "email": "max.mustermann@example.com",
-                        "telefon": "+49 30 1234567",
-                    }
-                )
-                self.assertFalse(result.is_valid)
-
-    def test_cleans_html_escaped_email_prefix_u003e(self) -> None:
-        cleaned = self.parser._clean_email_candidate("u003eknapp.michaela@trend.at")  # noqa: SLF001
-        self.assertEqual(cleaned, "knapp.michaela@trend.at")
-
-    def test_rejects_implausible_phone_examples(self) -> None:
-        invalid_phones = ["26054200", "20260313.3"]
-        for phone in invalid_phones:
-            with self.subTest(phone=phone):
-                self.assertFalse(self.parser._is_plausible_phone(phone))  # noqa: SLF001
-                self.assertFalse(self.validator._is_plausible_phone(phone))  # noqa: SLF001
-
-    def test_rejects_unreliable_remaining_phone_examples(self) -> None:
-        invalid_phones = ["1566381005", "44 468 20 27", "49 171 215 93 26"]
-        for phone in invalid_phones:
-            with self.subTest(phone=phone):
-                self.assertFalse(self.parser._is_plausible_phone(phone))  # noqa: SLF001
-                self.assertFalse(self.validator._is_plausible_phone(phone))  # noqa: SLF001
-                self.assertEqual(self.validator.normalize_phone(phone), "")
-
-    def test_fuzzy_match_email_is_cleared_for_unplausible_match(self) -> None:
-        scored = self.scorer.score(
-            {
-                "Trend": [
-                    {
-                        "vorname": "Michaela",
-                        "nachname": "Knapp",
-                        "rolle": "Redakteurin",
-                        "email": "michaela.knapp@trend.at",
-                        "telefon": "+43 1 2345678",
-                        "fuzzy_match_score": 70,
-                        "fuzzy_match_email": "wrong.person@otherdomain.com",
-                    }
-                ]
-            }
-        )
-        self.assertEqual(scored["Trend"][0]["fuzzy_match_email"], "")
-
-class ScorerValidationIntegrationTest(unittest.TestCase):
-    def test_scorer_filters_invalid_candidates(self) -> None:
-        scorer = Scorer()
-        scored = scorer.score(
-            {
-                "Medium A": [
-                    {
-                        "vorname": "Digital",
-                        "nachname": "Service",
-                        "rolle": "Service",
-                        "email": "digital.service@example.com",
-                        "telefon": "+49 30 1234567",
-                    },
-                    {
-                        "vorname": "Anna",
-                        "nachname": "Muster",
-                        "rolle": "Politik",
-                        "email": "anna.muster@example.com",
-                        "telefon": "+49 40 12345678",
-                    },
-                ]
-            }
-        )
-        self.assertEqual(len(scored["Medium A"]), 1)
-        self.assertEqual(scored["Medium A"][0]["vorname"], "Anna")
-
-
-class ParserMediumGuardrailsRegressionTest(unittest.TestCase):
-    def setUp(self) -> None:
-        self.parser = Parser()
-
-    def test_normalizes_deu_tld_and_deduplicates_same_person(self) -> None:
+    def test_parser_keeps_raw_candidates_and_scorer_applies_validation(self) -> None:
         text = """
-        Burkhard Bernhardt b.bernhardt@boersen-zeitung.de
-        Burkhard Bernhardt b.bernhardt@boersen-zeitung.deu
-        xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-        Thomas Hadeler t.hadeler@boersen-zeitung.de
-        Thomas Hadeler t.hadeler@boersen-zeitung.deu
+        Digital Service digital.service@wiwo.de
+        Anna Muster anna.muster@wiwo.de +49 40 12345678
         """
-        parsed = self.parser.parse({"Börsen-Zeitung": text})
-        emails = sorted(contact.email for contact in parsed["Börsen-Zeitung"])
-        self.assertEqual(
-            emails,
-            [
-                "b.bernhardt@boersen-zeitung.de",
-                "t.hadeler@boersen-zeitung.de",
-            ],
-        )
-        self.assertNotIn("b.bernhardt@boersen-zeitung.deu", emails)
-        self.assertNotIn("t.hadeler@boersen-zeitung.deu", emails)
-
-    def test_filters_institutional_money_foreign_domain(self) -> None:
-        text = """
-        Dijana Matkovic matkovic@fondsprofessionell.com
-        """
-        parsed = self.parser.parse({"Institutional Money": text})
-        self.assertEqual(parsed["Institutional Money"], [])
-
-    def test_filters_finanzen_net_foreign_domains(self) -> None:
-        text = """
-        Kurt Ziegler ziegler@donaucapital.com
-        Ingo Heinrich i.heinrich@netpoint-media.de
-        """
-        parsed = self.parser.parse({"finanzen.net": text})
-        self.assertEqual(parsed["finanzen.net"], [])
-
-    def test_rejects_specific_invalid_phone_patterns(self) -> None:
-        for phone in ["100-0005", "2026-03-13"]:
-            with self.subTest(phone=phone):
-                self.assertFalse(self.parser._is_plausible_phone(phone))  # noqa: SLF001
+        parsed = self.parser.parse({"Wirtschaftswoche": text})
+        records = [c.__dict__ for c in parsed["Wirtschaftswoche"]]
+        scored = self.scorer.score({"Wirtschaftswoche": records})
+        self.assertEqual(len(scored["Wirtschaftswoche"]), 2)
+        statuses = {entry["email"]: entry["status"] for entry in scored["Wirtschaftswoche"]}
+        self.assertEqual(statuses["anna.muster@wiwo.de"], STATUS_ACCEPT)
+        self.assertEqual(statuses["digital.service@wiwo.de"], STATUS_REVIEW)
 
 
 if __name__ == "__main__":

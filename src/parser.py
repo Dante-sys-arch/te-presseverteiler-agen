@@ -96,16 +96,6 @@ ORGANIZATION_TERMS = {
     "holding",
 }
 
-MEDIUM_ALLOWED_EMAIL_DOMAINS: dict[str, set[str]] = {
-    "börsen-zeitung": {"boersen-zeitung.de"},
-    "boersen-zeitung": {"boersen-zeitung.de"},
-    "institutional money": {"institutional-money.com"},
-    "finanzen.net": {"finanzen.net"},
-    "wirtschaftswoche": {"wiwo.de", "extern.wiwo.de"},
-    "wiwo": {"wiwo.de", "extern.wiwo.de"},
-}
-
-
 @dataclass(frozen=True)
 class ParsedContact:
     """Represents one parsed contact candidate."""
@@ -142,12 +132,7 @@ class Parser:
         return True
 
     def _clean_email_candidate(self, email: str) -> str:
-        cleaned = self._clean_text(email).strip().lower()
-        cleaned = re.sub(r"^(?:\\u)?0*3e", "", cleaned)
-        cleaned = re.sub(r"^(?:u003e|x3e|gt)+", "", cleaned)
-        cleaned = cleaned.lstrip(" >\\")
-        cleaned = re.sub(r"\.deu$", ".de", cleaned)
-        return cleaned
+        return self.validator.clean_email(self._clean_text(email))
 
     def _is_plausible_phone(self, phone: str) -> bool:
         if not phone:
@@ -162,13 +147,6 @@ class Parser:
         if normalized.endswith("/"):
             return False
         return bool(self.validator.normalize_phone(normalized))
-
-    def _is_email_allowed_for_medium(self, medium: str, email: str) -> bool:
-        allowed_domains = MEDIUM_ALLOWED_EMAIL_DOMAINS.get(medium.strip().lower())
-        if not allowed_domains:
-            return True
-        domain = email.partition("@")[2].lower()
-        return any(domain == allowed or domain.endswith(f".{allowed}") for allowed in allowed_domains)
 
     def _normalize_phone(self, phone: str) -> str:
         compact = re.sub(r"\s+", " ", phone).strip(" ,;.")
@@ -342,16 +320,7 @@ class Parser:
                     telefon=self._pick_reliable_phone(contact.telefon.strip(), tel_phones=set()),
                 )
             )
-        deduped = self._deduplicate(sanitized)
-        valid = []
-        for contact in deduped:
-            result = self.validator.validate_record(asdict(contact))
-            if result.is_valid:
-                valid.append(contact)
-        return valid
-
-    def _filter_medium_email_allowlist(self, medium: str, contacts: list[ParsedContact]) -> list[ParsedContact]:
-        return [contact for contact in contacts if self._is_email_allowed_for_medium(medium, contact.email)]
+        return self._deduplicate(sanitized)
 
     def _openai_fallback(self, text: str) -> list[ParsedContact]:
         if not self.openai_api_key:
@@ -403,7 +372,7 @@ class Parser:
             text = self._clean_text(text)
             regex_contacts = self._sanitize_contacts(self._regex_parse(text))
             contacts = regex_contacts if regex_contacts else self._sanitize_contacts(self._openai_fallback(text))
-            parsed[medium] = self._filter_medium_email_allowlist(medium, contacts)
+            parsed[medium] = contacts
         return parsed
 
 
