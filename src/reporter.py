@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
+import re
 
 import pandas as pd
 
@@ -15,6 +16,34 @@ class Reporter:
     def __init__(self, reports_dir: Path) -> None:
         self.reports_dir = reports_dir
 
+    def _is_valid_row(self, record: dict) -> bool:
+        first = str(record.get("vorname") or "").strip()
+        last = str(record.get("nachname") or "").strip()
+        email = str(record.get("email") or "").strip().lower()
+        if not first or not last or len(first) < 2 or len(last) < 2:
+            return False
+        if not re.fullmatch(r"[A-Za-zÄÖÜäöüß-]+", first):
+            return False
+        if not re.fullmatch(r"[A-Za-zÄÖÜäöüß-]+", last):
+            return False
+        if "@" not in email:
+            return False
+        return True
+
+    def _deduplicate_rows(self, rows: list[dict]) -> list[dict]:
+        unique: dict[tuple[str, str, str, str], dict] = {}
+        for row in rows:
+            key = (
+                str(row.get("medium") or "").strip().lower(),
+                str(row.get("email") or "").strip().lower(),
+                str(row.get("vorname") or "").strip().lower(),
+                str(row.get("nachname") or "").strip().lower(),
+            )
+            existing = unique.get(key)
+            if existing is None or float(row.get("confidence") or 0) > float(existing.get("confidence") or 0):
+                unique[key] = row
+        return list(unique.values())
+
     def write(self, payload: dict[str, list[dict]], diffs: dict[str, object], crawl_info: dict[str, object]) -> Path:
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -24,7 +53,10 @@ class Reporter:
             rows: list[dict] = []
             for medium, records in payload.items():
                 for record in records:
-                    rows.append({"medium": medium, **record})
+                    row = {"medium": medium, **record}
+                    if self._is_valid_row(row):
+                        rows.append(row)
+            rows = self._deduplicate_rows(rows)
             pd.DataFrame(rows).to_excel(writer, sheet_name="scored_candidates", index=False)
 
             diff_rows: list[dict] = []

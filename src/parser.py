@@ -18,6 +18,14 @@ ROLE_KEYWORDS = (
     "Journalist",
     "Ressort",
 )
+EDITORIAL_TERMS = {
+    "redaktion",
+    "chefredaktion",
+    "presse",
+    "kommunikation",
+    "newsroom",
+    "editorial",
+}
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 PHONE_CANDIDATE_RE = re.compile(r"(?:\+|\(?\d)[\d\s\-/().]{5,}\d")
 NAME_RE = re.compile(r"\b([A-ZÄÖÜ][a-zäöüß]+(?:-[A-ZÄÖÜ][a-zäöüß]+)?)\s+([A-ZÄÖÜ][a-zäöüß]+(?:-[A-ZÄÖÜ][a-zäöüß]+)?)\b")
@@ -42,6 +50,26 @@ BLOCKED_NAME_TERMS = {
     "recht",
     "formular",
     "frankfurter",
+    "allgemeine",
+    "zeitung",
+    "unternehmen",
+    "entdecken",
+    "technische",
+    "betreuung",
+    "geschätzte",
+    "lesezeit",
+    "silicon",
+    "valley",
+    "york",
+    "alles",
+    "wichtige",
+    "picture",
+    "press",
+    "handelsgericht",
+    "wien",
+    "ihre",
+    "daten",
+    "ihnen",
 }
 BLOCKED_FULL_NAMES = {"source sans", "source serif"}
 GENERIC_MAILBOX_TERMS = {"info", "kontakt", "contact", "hello", "office", "redaktion", "kommunikation", "presse", "newsroom", "service", "support", "admin", "mail"}
@@ -76,6 +104,14 @@ BLOCKED_CONTEXT_TERMS = {
     "land",
     "frankfurter",
     "digital",
+    "silicon",
+    "valley",
+    "new",
+    "york",
+    "wien",
+    "handelsgericht",
+    "picture",
+    "press",
 }
 
 
@@ -113,6 +149,35 @@ class Parser:
             return False
         return True
 
+    def _is_editorial_context(self, text: str) -> bool:
+        lowered = text.lower()
+        return any(term in lowered for term in EDITORIAL_TERMS)
+
+    def _email_matches_person_or_editorial(self, email: str, first: str, last: str, role: str, window: str) -> bool:
+        if not self._is_plausible_email(email):
+            return False
+        local = email.partition("@")[0].lower()
+        local_tokens = [token for token in re.split(r"[._+-]", local) if token]
+        first_l = first.lower()
+        last_l = last.lower()
+
+        has_person_match = (
+            first_l in local_tokens
+            or last_l in local_tokens
+            or f"{first_l}{last_l}" in local
+            or f"{last_l}{first_l}" in local
+            or (first_l[:1] and f"{first_l[:1]}{last_l}" in local)
+        )
+        if has_person_match:
+            return True
+
+        local_root = local_tokens[0] if local_tokens else ""
+        is_generic_mailbox = local_root in GENERIC_MAILBOX_TERMS
+        if not is_generic_mailbox:
+            return False
+
+        return self._is_editorial_context(role) or self._is_editorial_context(window)
+
     def _is_plausible_phone(self, phone: str) -> bool:
         if not phone:
             return False
@@ -120,6 +185,14 @@ class Parser:
         if normalized.count("/") > 1:
             return False
         if normalized.endswith("/"):
+            return False
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", normalized):
+            return False
+        if re.fullmatch(r"(?:\d\s+){5,}\d", normalized):
+            return False
+        if re.fullmatch(r"\d{1,3}(?:\.\d{3}){2,}", normalized):
+            return False
+        if "." in normalized and re.search(r"\d\s+\d\s+\d\s+\d", normalized):
             return False
         digits = re.sub(r"\D", "", phone)
         if len(digits) < 7 or len(digits) > 15:
@@ -146,6 +219,10 @@ class Parser:
         if first in BLOCKED_NAME_TERMS or last in BLOCKED_NAME_TERMS:
             return False
         if len(first) < 2 or len(last) < 2:
+            return False
+        if first == last:
+            return False
+        if not first.isalpha() or not last.isalpha():
             return False
         if first in BLOCKED_CONTEXT_TERMS or last in BLOCKED_CONTEXT_TERMS:
             return False
@@ -212,6 +289,8 @@ class Parser:
                 continue
             if not self._is_plausible_role(rolle):
                 continue
+            if not self._email_matches_person_or_editorial(email, vorname, nachname, rolle, window):
+                continue
 
             window_phone_matches = [
                 self._normalize_phone(p)
@@ -238,6 +317,15 @@ class Parser:
             if not self._is_plausible_name(contact.vorname, contact.nachname):
                 continue
             if contact.email and not self._is_plausible_email(contact.email):
+                continue
+            merged_context = f"{contact.rolle} {contact.email}"
+            if contact.email and not self._email_matches_person_or_editorial(
+                contact.email,
+                contact.vorname,
+                contact.nachname,
+                contact.rolle,
+                merged_context,
+            ):
                 continue
             sanitized.append(
                 ParsedContact(
