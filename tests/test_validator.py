@@ -211,6 +211,34 @@ class ValidatorRulesTest(unittest.TestCase):
         validated = self.validator.validate_records("Wirtschaftswoche", records)
         self.assertEqual(validated, [])
 
+    def test_rejects_person_with_review_reported_generic_mailboxes(self) -> None:
+        samples = [
+            ("Wirtschaftswoche", "Leonard", "Knollenborg", "erfolg@wiwo.de"),
+            ("Wirtschaftswoche", "Benedikt", "Becker", "politik@wiwo.de"),
+            ("NZZ", "Anna", "Muster", "visuals@nzz.ch"),
+            ("Welt", "Anna", "Muster", "nachdrucke@welt.de"),
+            ("Sueddeutsche", "Anna", "Muster", "anzeigenannahme@sueddeutsche.de"),
+        ]
+        for medium, first, last, email in samples:
+            with self.subTest(email=email):
+                validated = self.validator.validate_records(
+                    medium,
+                    [{"vorname": first, "nachname": last, "email": email, "telefon": "+49 30 1234567"}],
+                )
+                self.assertEqual(validated, [])
+
+    def test_rejects_url_encoded_email_artifacts_when_cleaned_to_generic_mailbox(self) -> None:
+        records = [
+            {
+                "vorname": "Anna",
+                "nachname": "Muster",
+                "email": "%20redaktion%40nzz.ch",
+                "telefon": "+41 44 258 11 11",
+            }
+        ]
+        validated = self.validator.validate_records("NZZ", records)
+        self.assertEqual(validated, [])
+
     def test_phone_date_values_are_blank_and_sent_to_review(self) -> None:
         records = [
             {
