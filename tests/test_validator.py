@@ -36,8 +36,43 @@ class ValidatorRulesTest(unittest.TestCase):
             }
         ]
         validated = self.validator.validate_records("Trend", records)
-        self.assertEqual(validated[0]["email"], "michaela.knapp@trend.de")
-        self.assertEqual(validated[0]["status"], STATUS_ACCEPT)
+        self.assertEqual(validated, [])
+
+    def test_rejects_broken_tld_comu(self) -> None:
+        records = [
+            {
+                "vorname": "Andrea",
+                "nachname": "Wasmuth",
+                "email": "handelsblatt@handelsblattgroup.comu",
+                "telefon": "+49 211 887-0",
+            }
+        ]
+        validated = self.validator.validate_records("Handelsblatt", records)
+        self.assertEqual(validated, [])
+
+    def test_rejects_street_name_candidate(self) -> None:
+        records = [
+            {
+                "vorname": "Toulouser",
+                "nachname": "Allee",
+                "email": "handelsblatt@handelsblattgroup.com",
+                "telefon": "+49 211 887-0",
+            }
+        ]
+        validated = self.validator.validate_records("Wirtschaftswoche", records)
+        self.assertEqual(validated, [])
+
+    def test_rejects_form_fragment_name(self) -> None:
+        records = [
+            {
+                "vorname": "Ihrer",
+                "nachname": "Daten",
+                "email": "leserservice@lzmedien.ch",
+                "telefon": "+41 44 258 11 11",
+            }
+        ]
+        validated = self.validator.validate_records("The Market (NZZ)", records)
+        self.assertEqual(validated, [])
 
     def test_rejects_foreign_domain_per_medium_rules(self) -> None:
         records = [

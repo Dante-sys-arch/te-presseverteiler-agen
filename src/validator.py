@@ -45,6 +45,38 @@ GENERIC_NON_PERSON_TOKENS = {
     "digital",
 }
 
+BROKEN_EMAIL_TLDS = {
+    "comu",
+    "deu",
+}
+
+FORM_FRAGMENT_TOKENS = {
+    "ihrer",
+    "ihre",
+    "ihren",
+    "ihres",
+    "deine",
+    "deiner",
+    "deinen",
+    "daten",
+    "angaben",
+    "formular",
+    "datenschutz",
+    "zustimmung",
+    "einwilligung",
+}
+
+STREET_SUFFIXES = {
+    "allee",
+    "straße",
+    "strasse",
+    "gasse",
+    "platz",
+    "weg",
+    "ring",
+    "ufer",
+}
+
 
 @dataclass(frozen=True)
 class ValidationResult:
@@ -126,7 +158,6 @@ class Validator:
         cleaned = cleaned.lstrip(" >\\")
         cleaned = cleaned.replace("%40", "@")
         cleaned = cleaned.replace("(at)", "@")
-        cleaned = re.sub(r"\.deu$", ".de", cleaned)
         cleaned = re.sub(r"[^a-z0-9@._%+\-]", "", cleaned)
         return cleaned
 
@@ -168,9 +199,15 @@ class Validator:
 
         first_n = self._normalize_text(first_raw)
         last_n = self._normalize_text(last_raw)
+        if first_n in FORM_FRAGMENT_TOKENS or last_n in FORM_FRAGMENT_TOKENS:
+            return False
+        if first_n in STREET_SUFFIXES or last_n in STREET_SUFFIXES:
+            return False
         if first_n in self.non_person_terms or last_n in self.non_person_terms:
             return False
         full = f"{first_n} {last_n}"
+        if any(token in full.split() for token in FORM_FRAGMENT_TOKENS):
+            return False
         return not any(term in full for term in self.non_person_terms)
 
     def _domain_allowed(self, medium: str, domain: str) -> bool:
@@ -197,6 +234,9 @@ class Validator:
         if not email or not EMAIL_RE.fullmatch(email):
             return False
         local, _, domain = email.partition("@")
+        tld = domain.rsplit(".", 1)[-1]
+        if tld in BROKEN_EMAIL_TLDS:
+            return False
         if len(local) < 2 or "." not in domain:
             return False
         if any(token in email for token in ("<", ">", "&gt;", "&lt;", "\\")):
