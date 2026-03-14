@@ -8,15 +8,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from validator import Validator
-
-
 class Reporter:
     """Writes timestamped Excel reports to reports directory."""
 
     def __init__(self, reports_dir: Path) -> None:
         self.reports_dir = reports_dir
-        self.validator = Validator()
 
     def write(self, payload: dict[str, list[dict]], diffs: dict[str, object], crawl_info: dict[str, object]) -> Path:
         self.reports_dir.mkdir(parents=True, exist_ok=True)
@@ -28,9 +24,8 @@ class Reporter:
             for medium, records in payload.items():
                 for record in records:
                     cleaned = dict(record)
-                    cleaned["telefon"] = self.validator.normalize_phone(str(cleaned.get("telefon") or ""))
-                    validated = self.validator.validate_record(cleaned)
-                    if not validated.is_valid:
+                    cleaned["telefon"] = str(cleaned.get("telefon") or "").strip()
+                    if cleaned.get("status") == "reject":
                         continue
                     rows.append({"medium": medium, **cleaned})
             pd.DataFrame(rows).to_excel(writer, sheet_name="scored_candidates", index=False)

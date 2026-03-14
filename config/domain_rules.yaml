@@ -1,0 +1,21 @@
+Börsen-Zeitung:
+  allowed_domains:
+    - boersen-zeitung.de
+  domain_match_mode: suffix
+
+Institutional Money:
+  allowed_domains:
+    - institutional-money.com
+  domain_match_mode: suffix
+
+finanzen.net:
+  allowed_domains:
+    - finanzen.net
+  domain_match_mode: suffix
+
+Wirtschaftswoche:
+  allowed_domains:
+    - wiwo.de
+  allowed_secondary_domains:
+    - extern.wiwo.de
+  domain_match_mode: suffix
