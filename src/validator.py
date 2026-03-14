@@ -65,6 +65,15 @@ GENERIC_NON_PERSON_TOKENS = {
     "informationen",
     "residence",
     "tel",
+    "editorial",
+    "tech",
+    "autoren",
+    "privatkunden",
+    "kunden",
+    "mochten",
+    "moechten",
+    "director",
+    "art",
 }
 
 GENERIC_NON_PERSON_PHRASES = {
@@ -103,6 +112,14 @@ GENERIC_NON_PERSON_PHRASES = {
     "forum",
     "gf",
     "commercial",
+    "editorial tech",
+    "freie autoren",
+    "unsere mitarbeitenden",
+    "fur privatkunden",
+    "für privatkunden",
+    "mochten sie",
+    "möchten sie",
+    "art director",
 }
 
 GENERIC_MAILBOX_LOCALS = {
@@ -138,7 +155,17 @@ GENERIC_MAILBOX_LOCALS = {
     "support",
     "team",
     "info",
+    "politik",
+    "erfolg",
+    "ausland",
 }
+
+GENERIC_MAILBOX_PREFIXES = (
+    "themen",
+    "buero",
+    "leser",
+    "abo",
+)
 
 BROKEN_EMAIL_TLDS = {
     "comu",
@@ -204,6 +231,12 @@ FUNCTION_ROLE_TOKENS = {
     "informationen",
     "nachricht",
     "tel",
+    "editorial",
+    "tech",
+    "autoren",
+    "mitarbeitenden",
+    "privatkunden",
+    "director",
 }
 
 FORM_LANGUAGE_TOKENS = {
@@ -217,6 +250,8 @@ FORM_LANGUAGE_TOKENS = {
     "informationen",
     "senden",
     "anfrage",
+    "mochten",
+    "moechten",
 }
 
 
@@ -412,10 +447,15 @@ class Validator:
         if not email or "@" not in email:
             return True
         local = self._normalize_text(email.split("@", 1)[0])
+        local = local.replace("ä", "ae").replace("ö", "oe").replace("ü", "ue")
         if local in GENERIC_MAILBOX_LOCALS:
+            return True
+        if any(local.startswith(prefix) for prefix in GENERIC_MAILBOX_PREFIXES):
             return True
         local_parts = set(re.split(r"[._\-+]", local))
         if local_parts & GENERIC_MAILBOX_LOCALS:
+            return True
+        if any(any(part.startswith(prefix) for prefix in GENERIC_MAILBOX_PREFIXES) for part in local_parts):
             return True
         return False
 
@@ -439,7 +479,36 @@ class Validator:
         local_n = re.sub(r"[^a-z0-9]", "", local.lower())
         if not first_n or not last_n:
             return False
-        return first_n in local_n or last_n in local_n
+        if first_n in local_n or last_n in local_n:
+            return True
+        first_initial = first_n[0]
+        last_initial = last_n[0]
+        plausible_patterns = (
+            f"{first_initial}{last_n}",
+            f"{first_n}{last_initial}",
+            f"{last_n}{first_initial}",
+            f"{last_initial}{first_n}",
+        )
+        return any(pattern in local_n for pattern in plausible_patterns)
+
+    def _is_clear_name_mailbox_mismatch(self, email: str, first: str, last: str) -> bool:
+        if not email or "@" not in email:
+            return False
+        if self._is_generic_mailbox(email):
+            return False
+        local = self._normalize_text(email.split("@", 1)[0])
+        first_n = re.sub(r"[^a-z0-9]", "", self._normalize_text(first))
+        last_n = re.sub(r"[^a-z0-9]", "", self._normalize_text(last))
+        if not first_n or not last_n:
+            return False
+        local_n = re.sub(r"[^a-z0-9]", "", local)
+        if self._email_matches_name(email, first, last):
+            return False
+        parts = [p for p in re.split(r"[._\-+]", local) if p and p.isalpha()]
+        if len(parts) >= 2 and all(len(p) >= 3 for p in parts[:2]):
+            # Looks like another concrete person mailbox (e.g. marcel.reyle@...).
+            return first_n not in local_n and last_n not in local_n
+        return False
 
     def _assign_status(
         self,
@@ -452,6 +521,7 @@ class Validator:
         duplicate: bool,
         generic_name: bool,
         generic_mailbox: bool,
+        clear_name_mailbox_mismatch: bool,
     ) -> tuple[str, float, str]:
         if duplicate:
             return STATUS_REJECT, 0.0, "duplicate"
@@ -469,6 +539,8 @@ class Validator:
             return STATUS_REJECT, 0.1, "generic_mailbox"
         if not domain_ok:
             return STATUS_REJECT, 0.1, "foreign_domain"
+        if clear_name_mailbox_mismatch:
+            return STATUS_REJECT, 0.1, "name_mailbox_mismatch"
         if not email_name_ok:
             return STATUS_REVIEW, 0.45, "email_name_mismatch"
         if not phone_ok:
@@ -508,9 +580,11 @@ class Validator:
         generic_mailbox = self._is_generic_mailbox(email)
         domain_ok = False
         email_name_ok = False
+        clear_name_mailbox_mismatch = False
         if email_ok:
             domain_ok = self._domain_allowed(medium, email.split("@", 1)[1])
             email_name_ok = self._email_matches_name(email, first, last)
+            clear_name_mailbox_mismatch = self._is_clear_name_mailbox_mismatch(email, first, last)
 
         phone_ok = not str(record.get("telefon") or "").strip() or bool(phone)
         canonical_key = self._canonical_email_key(email)
@@ -527,6 +601,7 @@ class Validator:
             duplicate=duplicate,
             generic_name=generic_name,
             generic_mailbox=generic_mailbox,
+            clear_name_mailbox_mismatch=clear_name_mailbox_mismatch,
         )
         return ValidationResult(
             is_person=is_person,
