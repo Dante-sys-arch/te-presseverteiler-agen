@@ -151,6 +151,66 @@ class ValidatorRulesTest(unittest.TestCase):
         validated = self.validator.validate_records("Wirtschaftswoche", records)
         self.assertEqual(validated, [])
 
+    def test_rejects_real_person_with_obviously_foreign_person_mailbox(self) -> None:
+        records = [
+            {
+                "vorname": "Claudia",
+                "nachname": "Immig",
+                "email": "marcel.reyle@wiwo.de",
+                "telefon": "+49 30 1234567",
+            }
+        ]
+        validated = self.validator.validate_records("Wirtschaftswoche", records)
+        self.assertEqual(validated, [])
+
+    def test_rejects_location_term_as_name(self) -> None:
+        records = [
+            {
+                "vorname": "Zuerich",
+                "nachname": "City",
+                "email": "zuerich.city@wiwo.de",
+                "telefon": "+49 30 1234567",
+            }
+        ]
+        validated = self.validator.validate_records("Wirtschaftswoche", records)
+        self.assertEqual(validated, [])
+
+    def test_rejects_role_term_as_name(self) -> None:
+        records = [
+            {
+                "vorname": "Art",
+                "nachname": "Director",
+                "email": "art.director@wiwo.de",
+                "telefon": "+49 30 1234567",
+            }
+        ]
+        validated = self.validator.validate_records("Wirtschaftswoche", records)
+        self.assertEqual(validated, [])
+
+    def test_rejects_form_hint_text_as_name(self) -> None:
+        records = [
+            {
+                "vorname": "Moechten",
+                "nachname": "Sie",
+                "email": "moechten.sie@wiwo.de",
+                "telefon": "+49 30 1234567",
+            }
+        ]
+        validated = self.validator.validate_records("Wirtschaftswoche", records)
+        self.assertEqual(validated, [])
+
+    def test_rejects_generic_mailbox_with_pretended_person_candidate(self) -> None:
+        records = [
+            {
+                "vorname": "Freie",
+                "nachname": "Autoren",
+                "email": "politik@wiwo.de",
+                "telefon": "+49 30 1234567",
+            }
+        ]
+        validated = self.validator.validate_records("Wirtschaftswoche", records)
+        self.assertEqual(validated, [])
+
     def test_phone_date_values_are_blank_and_sent_to_review(self) -> None:
         records = [
             {
