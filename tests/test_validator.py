@@ -26,6 +26,23 @@ class ValidatorRulesTest(unittest.TestCase):
         validated = self.validator.validate_records("Wirtschaftswoche", records)
         self.assertEqual(validated, [])
 
+    def test_rejects_requested_generic_name_and_mailbox_pairs(self) -> None:
+        samples = [
+            ("finanzen.net", "Im Hilfebereich", "", "impressum@finanzen.net"),
+            ("Alles Wichtige", "Alles", "Wichtige", "spiegel_online@spiegel.de"),
+            ("Alles Wichtige", "Alles", "Wichtige", "mm_redaktion@manager-magazin.de"),
+            ("Der Inhalt", "Der", "Inhalt", "sales@picturepress.de"),
+            ("Europäische Gremium", "Europäische", "Gremium", "dsk@diepresse.com"),
+            ("Gesetzlicher Vertreter", "Gesetzlicher", "Vertreter", "publikumsservice@mdr.de"),
+            ("Mail Kategorie", "Mail", "Kategorie", "anzeigen@sonntagszeitung.ch"),
+            ("Inserateaufgabe Basler", "Inserateaufgabe", "Basler", "digitalnext@goldbach.ch"),
+        ]
+        for medium, first, last, email in samples:
+            with self.subTest(email=email):
+                records = [{"vorname": first, "nachname": last, "email": email, "telefon": ""}]
+                validated = self.validator.validate_records(medium, records)
+                self.assertEqual(validated, [])
+
     def test_cleans_html_escape_and_deu_tld(self) -> None:
         records = [
             {

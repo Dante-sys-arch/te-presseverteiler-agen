@@ -45,6 +45,44 @@ GENERIC_NON_PERSON_TOKENS = {
     "digital",
 }
 
+GENERIC_NON_PERSON_PHRASES = {
+    "im hilfebereich",
+    "alles wichtige",
+    "der inhalt",
+    "europäische gremium",
+    "gesetzlicher vertreter",
+    "mail kategorie",
+    "inserateaufgabe basler",
+    "impressum",
+    "datenschutz",
+    "kontakt",
+    "service",
+    "kundenservice",
+    "leserservice",
+    "publikumsservice",
+    "formular",
+    "navigation",
+    "anzeigen",
+    "vertrieb",
+    "verkauf",
+    "sales",
+}
+
+GENERIC_MAILBOX_LOCALS = {
+    "impressum",
+    "redaktion",
+    "spiegel_online",
+    "mm_redaktion",
+    "sales",
+    "publikumsservice",
+    "anzeigen",
+    "kundenservice",
+    "leserservice",
+    "unternehmen",
+    "innovation",
+    "geld",
+}
+
 BROKEN_EMAIL_TLDS = {
     "comu",
     "deu",
@@ -210,6 +248,20 @@ class Validator:
             return False
         return not any(term in full for term in self.non_person_terms)
 
+    def _looks_generic_non_person_name(self, first: str, last: str) -> bool:
+        first_n = self._normalize_text(first)
+        last_n = self._normalize_text(last)
+        full = f"{first_n} {last_n}".strip()
+        if not full:
+            return True
+
+        phrase_checks = {full, first_n, last_n}
+        if phrase_checks & GENERIC_NON_PERSON_PHRASES:
+            return True
+        if any(term in full for term in self.non_person_terms):
+            return True
+        return False
+
     def _domain_allowed(self, medium: str, domain: str) -> bool:
         rules = self.domain_rules.get(self._normalize_text(medium), {})
         if not rules:
@@ -243,6 +295,17 @@ class Validator:
             return False
         return True
 
+    def _is_generic_mailbox(self, email: str) -> bool:
+        if not email or "@" not in email:
+            return True
+        local = self._normalize_text(email.split("@", 1)[0])
+        if local in GENERIC_MAILBOX_LOCALS:
+            return True
+        local_parts = set(re.split(r"[._\-+]", local))
+        if local_parts & GENERIC_MAILBOX_LOCALS:
+            return True
+        return False
+
 
     def _email_matches_name(self, email: str, first: str, last: str) -> bool:
         if not email or "@" not in email:
@@ -255,13 +318,32 @@ class Validator:
             return False
         return first_n in local_n or last_n in local_n
 
-    def _assign_status(self, *, is_person: bool, email_ok: bool, email_name_ok: bool, domain_ok: bool, phone_ok: bool, duplicate: bool) -> tuple[str, float, str]:
+    def _assign_status(
+        self,
+        *,
+        is_person: bool,
+        email_ok: bool,
+        email_name_ok: bool,
+        domain_ok: bool,
+        phone_ok: bool,
+        duplicate: bool,
+        generic_name: bool,
+        generic_mailbox: bool,
+    ) -> tuple[str, float, str]:
         if duplicate:
             return STATUS_REJECT, 0.0, "duplicate"
+        if generic_name and generic_mailbox:
+            return STATUS_REJECT, 0.01, "generic_name_and_mailbox"
+        if generic_name:
+            return STATUS_REJECT, 0.02, "generic_non_person_name"
+        if generic_mailbox and not is_person:
+            return STATUS_REJECT, 0.02, "generic_mailbox_non_person"
         if not is_person:
             return STATUS_REJECT, 0.05, "non_person"
         if not email_ok:
             return STATUS_REJECT, 0.1, "invalid_email"
+        if generic_mailbox:
+            return STATUS_REJECT, 0.1, "generic_mailbox"
         if not domain_ok:
             return STATUS_REJECT, 0.1, "foreign_domain"
         if not email_name_ok:
@@ -292,6 +374,8 @@ class Validator:
 
         is_person = self._is_person_name(first, last)
         email_ok = self._is_plausible_email(email)
+        generic_name = self._looks_generic_non_person_name(first, last)
+        generic_mailbox = self._is_generic_mailbox(email)
         domain_ok = False
         email_name_ok = False
         if email_ok:
@@ -308,6 +392,8 @@ class Validator:
             domain_ok=domain_ok,
             phone_ok=phone_ok,
             duplicate=duplicate,
+            generic_name=generic_name,
+            generic_mailbox=generic_mailbox,
         )
         return ValidationResult(
             is_person=is_person,
