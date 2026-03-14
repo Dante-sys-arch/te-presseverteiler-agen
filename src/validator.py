@@ -7,6 +7,7 @@ from pathlib import Path
 import html
 import re
 import unicodedata
+from urllib.parse import unquote
 
 
 EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
@@ -158,6 +159,9 @@ GENERIC_MAILBOX_LOCALS = {
     "politik",
     "erfolg",
     "ausland",
+    "visuals",
+    "nachdrucke",
+    "anzeigenannahme",
 }
 
 GENERIC_MAILBOX_PREFIXES = (
@@ -331,6 +335,7 @@ class Validator:
 
     def clean_email(self, email: str) -> str:
         cleaned = self._normalize_text(email)
+        cleaned = unquote(cleaned)
         cleaned = re.sub(r"^(?:x3e|gt)+", "", cleaned)
         cleaned = cleaned.lstrip(" >\\")
         cleaned = cleaned.replace("%40", "@")
