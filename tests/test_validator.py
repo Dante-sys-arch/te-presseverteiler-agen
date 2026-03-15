@@ -265,6 +265,75 @@ class ValidatorRulesTest(unittest.TestCase):
         self.assertEqual(validated[0]["status"], STATUS_REVIEW)
         self.assertEqual(validated[0]["telefon"], "")
 
+
+    def test_rejects_observed_generic_mailbox_mismatches(self) -> None:
+        samples = [
+            ("Handelsblatt", "Andrea", "Wasmuth", "handelsblatt@handelsblattgroup.com"),
+            ("Wirtschaftswoche", "Andrea", "Wasmuth", "online-pr@wiwo.de"),
+            ("Handelsblatt", "Sebastian", "Christensen", "handelsblatt@handelsblattgroup.com"),
+            ("Sueddeutsche", "Max", "Ferstl", "suedwesten@sz.de"),
+            ("Stern", "Julia", "Stahl", "stiftung@stern.de"),
+            ("Potsdamer Neueste Nachrichten", "Stefan", "Buhr", "potsdam@pnn.de"),
+        ]
+        for medium, first, last, email in samples:
+            with self.subTest(email=email):
+                validated = self.validator.validate_records(
+                    medium,
+                    [{"vorname": first, "nachname": last, "email": email, "telefon": "+49 30 1234567"}],
+                )
+                self.assertEqual(validated, [])
+
+    def test_rejects_non_person_phrase_candidates(self) -> None:
+        samples = [
+            ("Schicken", "Sie", "schicken.sie@beispiel.de"),
+            ("Die", "Federfuehrung", "die.federfuehrung@beispiel.de"),
+            ("Browser", "Emojis", "browser.emojis@beispiel.de"),
+            ("King", "George", "king.george@beispiel.de"),
+        ]
+        for first, last, email in samples:
+            with self.subTest(email=email):
+                validated = self.validator.validate_records(
+                    "Wirtschaftswoche",
+                    [{"vorname": first, "nachname": last, "email": email, "telefon": "+49 30 1234567"}],
+                )
+                self.assertEqual(validated, [])
+
+    def test_rejects_multiple_swapped_person_mailboxes_within_medium(self) -> None:
+        records = [
+            {
+                "vorname": "Claudia",
+                "nachname": "Immig",
+                "email": "marcel.reyle@wiwo.de",
+                "telefon": "+49 30 1234567",
+            },
+            {
+                "vorname": "Marcel",
+                "nachname": "Reyle",
+                "email": "claudia.immig@wiwo.de",
+                "telefon": "+49 30 1234567",
+            },
+        ]
+        validated = self.validator.validate_records("Wirtschaftswoche", records)
+        self.assertEqual(validated, [])
+
+    def test_rejects_gewinn_person_mismatch_patterns_generally(self) -> None:
+        records = [
+            {
+                "vorname": "Anna",
+                "nachname": "Muster",
+                "email": "redaktion@gewinn.com",
+                "telefon": "+43 1 1234567",
+            },
+            {
+                "vorname": "Max",
+                "nachname": "Beispiel",
+                "email": "marketing@gewinn.com",
+                "telefon": "+43 1 1234567",
+            },
+        ]
+        validated = self.validator.validate_records("Gewinn", records)
+        self.assertEqual(validated, [])
+
     def test_deduplicates_email_typos_for_same_person(self) -> None:
         records = [
             {
