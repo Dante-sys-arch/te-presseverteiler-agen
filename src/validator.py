@@ -121,6 +121,11 @@ GENERIC_NON_PERSON_PHRASES = {
     "mochten sie",
     "möchten sie",
     "art director",
+    "schicken sie",
+    "die federfuehrung",
+    "die federführung",
+    "browser emojis",
+    "king george",
 }
 
 GENERIC_MAILBOX_LOCALS = {
@@ -162,6 +167,11 @@ GENERIC_MAILBOX_LOCALS = {
     "visuals",
     "nachdrucke",
     "anzeigenannahme",
+    "handelsblatt",
+    "online-pr",
+    "suedwesten",
+    "stiftung",
+    "potsdam",
 }
 
 GENERIC_MAILBOX_PREFIXES = (
@@ -435,6 +445,23 @@ class Validator:
             return domain in allowed_all
         return any(domain == allowed_domain or domain.endswith(f".{allowed_domain}") for allowed_domain in allowed_all)
 
+    def _ascii_variants(self, value: str) -> set[str]:
+        normalized = self._normalize_text(value)
+        if not normalized:
+            return set()
+        raw = re.sub(r"[^a-z0-9äöüß]", "", normalized)
+        if not raw:
+            return set()
+        mapped = (
+            raw.replace("ä", "ae")
+            .replace("ö", "oe")
+            .replace("ü", "ue")
+            .replace("ß", "ss")
+        )
+        collapsed = unicodedata.normalize("NFKD", raw).encode("ascii", "ignore").decode("ascii")
+        variants = {re.sub(r"[^a-z0-9]", "", raw), re.sub(r"[^a-z0-9]", "", mapped), re.sub(r"[^a-z0-9]", "", collapsed)}
+        return {v for v in variants if v}
+
     def _is_plausible_email(self, email: str) -> bool:
         if not email or not EMAIL_RE.fullmatch(email):
             return False
@@ -479,22 +506,49 @@ class Validator:
         if not email or "@" not in email:
             return False
         local = email.split("@", 1)[0]
-        first_n = re.sub(r"[^a-z0-9]", "", self._normalize_text(first))
-        last_n = re.sub(r"[^a-z0-9]", "", self._normalize_text(last))
-        local_n = re.sub(r"[^a-z0-9]", "", local.lower())
-        if not first_n or not last_n:
+        first_vars = self._ascii_variants(first)
+        last_vars = self._ascii_variants(last)
+        local_n = re.sub(r"[^a-z0-9]", "", self._normalize_text(local))
+        local_parts = [p for p in re.split(r"[._\-+]", self._normalize_text(local)) if p]
+        local_parts_n = [re.sub(r"[^a-z0-9]", "", p) for p in local_parts]
+        if not first_vars or not last_vars:
             return False
-        if first_n in local_n or last_n in local_n:
+
+        for first_n in first_vars:
+            for last_n in last_vars:
+                if local_n == last_n:
+                    return True
+                first_initial = first_n[0]
+                last_initial = last_n[0]
+                plausible_patterns = {
+                    f"{first_n}{last_n}",
+                    f"{last_n}{first_n}",
+                    f"{first_initial}{last_n}",
+                    f"{last_n}{first_initial}",
+                    f"{first_n}{last_initial}",
+                    f"{last_initial}{first_n}",
+                }
+                if local_n in plausible_patterns:
+                    return True
+                if len(local_parts_n) >= 2 and local_parts_n[0] == first_n and local_parts_n[1] == last_n:
+                    return True
+                if len(local_parts_n) >= 2 and local_parts_n[0] == last_n and local_parts_n[1] == first_n:
+                    return True
+        return False
+
+    def _email_looks_name_related_but_uncertain(self, email: str, first: str, last: str) -> bool:
+        if not email or "@" not in email:
+            return False
+        local_n = re.sub(r"[^a-z0-9]", "", self._normalize_text(email.split("@", 1)[0]))
+        if not local_n:
+            return False
+        first_vars = self._ascii_variants(first)
+        last_vars = self._ascii_variants(last)
+        if any(len(last_n) >= 4 and last_n in local_n for last_n in last_vars):
             return True
-        first_initial = first_n[0]
-        last_initial = last_n[0]
-        plausible_patterns = (
-            f"{first_initial}{last_n}",
-            f"{first_n}{last_initial}",
-            f"{last_n}{first_initial}",
-            f"{last_initial}{first_n}",
-        )
-        return any(pattern in local_n for pattern in plausible_patterns)
+        if any(len(first_n) >= 4 and first_n in local_n for first_n in first_vars):
+            return True
+        return False
 
     def _is_clear_name_mailbox_mismatch(self, email: str, first: str, last: str) -> bool:
         if not email or "@" not in email:
@@ -502,17 +556,22 @@ class Validator:
         if self._is_generic_mailbox(email):
             return False
         local = self._normalize_text(email.split("@", 1)[0])
-        first_n = re.sub(r"[^a-z0-9]", "", self._normalize_text(first))
-        last_n = re.sub(r"[^a-z0-9]", "", self._normalize_text(last))
-        if not first_n or not last_n:
+        first_vars = self._ascii_variants(first)
+        last_vars = self._ascii_variants(last)
+        if not first_vars or not last_vars:
             return False
         local_n = re.sub(r"[^a-z0-9]", "", local)
         if self._email_matches_name(email, first, last):
             return False
+        if self._email_looks_name_related_but_uncertain(email, first, last):
+            return False
         parts = [p for p in re.split(r"[._\-+]", local) if p and p.isalpha()]
         if len(parts) >= 2 and all(len(p) >= 3 for p in parts[:2]):
             # Looks like another concrete person mailbox (e.g. marcel.reyle@...).
-            return first_n not in local_n and last_n not in local_n
+            return not any(v in local_n for v in first_vars | last_vars)
+        # Single-token mailboxes without name overlap are usually generic/functional.
+        if len(parts) <= 1 and len(local_n) >= 4:
+            return not any(v in local_n for v in first_vars | last_vars)
         return False
 
     def _assign_status(
@@ -521,6 +580,7 @@ class Validator:
         is_person: bool,
         email_ok: bool,
         email_name_ok: bool,
+        email_name_uncertain: bool,
         domain_ok: bool,
         phone_ok: bool,
         duplicate: bool,
@@ -547,6 +607,8 @@ class Validator:
         if clear_name_mailbox_mismatch:
             return STATUS_REJECT, 0.1, "name_mailbox_mismatch"
         if not email_name_ok:
+            if not email_name_uncertain:
+                return STATUS_REJECT, 0.1, "name_mailbox_mismatch"
             return STATUS_REVIEW, 0.45, "email_name_mismatch"
         if not phone_ok:
             return STATUS_REVIEW, 0.55, "phone_uncertain"
@@ -585,10 +647,12 @@ class Validator:
         generic_mailbox = self._is_generic_mailbox(email)
         domain_ok = False
         email_name_ok = False
+        email_name_uncertain = False
         clear_name_mailbox_mismatch = False
         if email_ok:
             domain_ok = self._domain_allowed(medium, email.split("@", 1)[1])
             email_name_ok = self._email_matches_name(email, first, last)
+            email_name_uncertain = self._email_looks_name_related_but_uncertain(email, first, last)
             clear_name_mailbox_mismatch = self._is_clear_name_mailbox_mismatch(email, first, last)
 
         phone_ok = not str(record.get("telefon") or "").strip() or bool(phone)
@@ -601,6 +665,7 @@ class Validator:
             is_person=is_person,
             email_ok=email_ok,
             email_name_ok=email_name_ok,
+            email_name_uncertain=email_name_uncertain,
             domain_ok=domain_ok,
             phone_ok=phone_ok,
             duplicate=duplicate,
