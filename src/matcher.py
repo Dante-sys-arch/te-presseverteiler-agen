@@ -1,4 +1,4 @@
-"""Matcher module for linking parsed contacts to master data and mandate mapping."""
+"""Matcher module for master-vs-web delta assessments with source weighting."""
 
 from __future__ import annotations
 
@@ -12,14 +12,12 @@ from rapidfuzz import fuzz
 
 @dataclass(frozen=True)
 class MandateRule:
-    """Simple mandate assignment rule based on a ressort tag."""
-
     ressort_tag: str
     mandat: str
 
 
 class Matcher:
-    """Matches parsed contacts against mandate rules and master workbook."""
+    """Matches parsed official contacts + industry hints against the master file."""
 
     def __init__(self, mapping_file: Path, master_file: Path) -> None:
         self.mapping_file = mapping_file
@@ -30,19 +28,11 @@ class Matcher:
             return []
         with self.mapping_file.open("r", encoding="utf-8", newline="") as handle:
             reader = csv.DictReader(handle)
-            return [
-                MandateRule(
-                    ressort_tag=(row.get("ressort_tag") or "").strip(),
-                    mandat=(row.get("mandat") or "").strip(),
-                )
-                for row in reader
-                if (row.get("ressort_tag") or "").strip()
-            ]
+            return [MandateRule(ressort_tag=(r.get("ressort_tag") or "").strip(), mandat=(r.get("mandat") or "").strip()) for r in reader if (r.get("ressort_tag") or "").strip()]
 
     def load_master_contacts(self) -> list[dict[str, str]]:
         if not self.master_file.exists():
             return []
-
         sheets = pd.read_excel(self.master_file, sheet_name=None, header=None)
         contacts: list[dict[str, str]] = []
         for _, frame in sheets.items():
@@ -57,53 +47,121 @@ class Matcher:
                         "vorname": values[2],
                         "nachname": values[3],
                         "email": values[4].lower(),
+                        "ressort": values[7] if len(values) > 7 else "",
                         "telefon": values[8] if len(values) > 8 else "",
                     }
                 )
         return contacts
 
-    def _mandate_for(self, role: str, rules: list[MandateRule]) -> str:
-        role_l = (role or "").lower()
-        for rule in rules:
-            if rule.ressort_tag.lower() in role_l:
-                return rule.mandat
-        return ""
+    def _name(self, row: dict) -> str:
+        return f"{row.get('vorname', '')} {row.get('nachname', '')}".strip()
 
-    def _fuzzy_match_score(self, record: dict, master_contacts: list[dict[str, str]]) -> tuple[int, str]:
-        candidate_name = f"{record.get('vorname', '')} {record.get('nachname', '')}".strip().lower()
-        if not candidate_name:
-            return (0, "")
+    def _find_official_match(self, master: dict, official_contacts: list[dict]) -> dict | None:
+        email = master.get("email", "").lower()
+        name = self._name(master).lower()
+        for record in official_contacts:
+            if record.get("email", "").lower() == email:
+                return record
 
         best_score = 0
-        best_email = ""
-        for master in master_contacts:
-            master_name = f"{master.get('vorname', '')} {master.get('nachname', '')}".strip().lower()
-            score = fuzz.ratio(candidate_name, master_name)
+        best: dict | None = None
+        for record in official_contacts:
+            candidate = self._name(record).lower()
+            score = fuzz.ratio(name, candidate)
             if score > best_score:
-                best_score = int(score)
-                best_email = master.get("email", "")
-        return best_score, best_email
+                best_score = score
+                best = record
+        return best if best_score >= 92 else None
 
-    def match(self, parsed_data: dict[str, list[dict]]) -> dict[str, list[dict]]:
-        rules = self.load_rules()
+    def _find_industry_hints(self, master: dict, industry_hints: list[dict]) -> list[dict]:
+        name = self._name(master).lower()
+        out: list[dict] = []
+        for hint in industry_hints:
+            journalist = str(hint.get("journalist", "")).lower()
+            if not journalist:
+                continue
+            if fuzz.ratio(name, journalist) >= 92:
+                out.append(hint)
+        return out
+
+    def build_delta_inputs(self, parsed_structured: dict[str, dict]) -> list[dict]:
         master_contacts = self.load_master_contacts()
-        master_by_email = {c["email"]: c for c in master_contacts if c.get("email")}
+        all_industry_hints: list[dict] = []
+        for payload in parsed_structured.values():
+            all_industry_hints.extend(payload.get("industry_hints", []))
 
-        enriched: dict[str, list[dict]] = {}
-        for medium, records in parsed_data.items():
-            enriched_records: list[dict] = []
-            for record in records:
-                email = (record.get("email") or "").lower()
-                existing = master_by_email.get(email)
-                fuzzy_score, fuzzy_email = self._fuzzy_match_score(record, master_contacts)
-                enriched_records.append(
-                    {
-                        **record,
-                        "mandat": self._mandate_for(record.get("rolle", ""), rules),
-                        "master_match_email": existing.get("email", "") if existing else "",
-                        "fuzzy_match_score": fuzzy_score,
-                        "fuzzy_match_email": fuzzy_email,
-                    }
-                )
-            enriched[medium] = enriched_records
-        return enriched
+        rows: list[dict] = []
+        for master in master_contacts:
+            medium = master.get("medium", "")
+            payload = parsed_structured.get(medium, {})
+            official = payload.get("official_contacts", [])
+            medium_status = payload.get("medium_status", "ok")
+            hint_matches = self._find_industry_hints(master, all_industry_hints)
+            official_match = self._find_official_match(master, official)
+
+            change_flags: list[str] = []
+            externer_hinweis = "kein externer Hinweis"
+            pruefen = "Nein"
+            empfehlung = "Keine Aktion"
+            im_web = "Nein"
+            neuer_stand = ""
+
+            if official_match:
+                im_web = "Ja"
+                change_flags.append("Journalist bei Medium bestätigt")
+                for field, label in (("email", "E-Mail geändert"), ("telefon", "Telefon geändert"), ("rolle", "Ressort geändert")):
+                    old = (master.get(field if field != "rolle" else "ressort", "") or "").strip().lower()
+                    new = (official_match.get(field, "") or "").strip().lower()
+                    if old and new and old != new:
+                        change_flags.append(label)
+                neuer_stand = f"{official_match.get('email', '')} | {official_match.get('telefon', '')} | {official_match.get('rolle', '')}"
+            else:
+                change_flags.append("Journalist bei Medium nicht mehr gefunden")
+                empfehlung = "Prüfen"
+                pruefen = "Ja"
+
+            if medium_status == "technisch_nicht_erreichbar":
+                change_flags.append("Medium technisch nicht erreichbar")
+                empfehlung = "Erneut prüfen"
+                pruefen = "Ja"
+            if medium_status == "wahrscheinlich_nicht_mehr_aktiv":
+                change_flags.append("Medium wahrscheinlich nicht mehr aktiv")
+                empfehlung = "Mediumstatus prüfen"
+                pruefen = "Ja"
+
+            if hint_matches:
+                externer_hinweis = "Wechsel in Branchenquelle gemeldet"
+                hint_sources = sorted({h.get("source", "") for h in hint_matches if h.get("source")})
+                if official_match:
+                    externer_hinweis = "Widerspruch zwischen offizieller Quelle und Branchenquelle"
+                    pruefen = "Ja"
+                    empfehlung = "Widerspruch klären"
+                elif not official_match:
+                    change_flags.append("wahrscheinlicher Medienwechsel")
+                    empfehlung = "Kontakt manuell verifizieren"
+                    pruefen = "Ja"
+                source = ", ".join(hint_sources)
+            else:
+                source = "offizielle Mediumsquelle"
+
+            rows.append(
+                {
+                    "medium": medium,
+                    "journalist": self._name(master),
+                    "im_master": "Ja",
+                    "im_web_gefunden": im_web,
+                    "externer_hinweis": externer_hinweis,
+                    "was_ist_anders": "; ".join(dict.fromkeys(change_flags)),
+                    "alter_stand": f"{master.get('email', '')} | {master.get('telefon', '')} | {master.get('ressort', '')}",
+                    "neuer_stand": neuer_stand,
+                    "quelle": source,
+                    "empfohlene_aktion": empfehlung,
+                    "pruefen": pruefen,
+                    "kommentar": "",
+                }
+            )
+        return rows
+
+    # Backward-compatible method used by older flow/tests.
+    def match(self, parsed_data: dict[str, list[dict]]) -> dict[str, list[dict]]:
+        return parsed_data

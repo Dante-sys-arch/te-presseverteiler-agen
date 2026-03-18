@@ -6,3 +6,5 @@ lxml
 rapidfuzz
 openai
 
+
+pyyaml

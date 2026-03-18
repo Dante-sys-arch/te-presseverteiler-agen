@@ -1,0 +1,102 @@
+import sys
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "src"))
+
+from diff_engine import DiffEngine
+from matcher import Matcher
+
+
+class StubMatcher(Matcher):
+    def __init__(self) -> None:
+        super().__init__(Path("config/mandate_mapping.csv"), Path("data/master/MASTER_DACHLILUX.xlsx"))
+
+    def load_master_contacts(self):
+        return [
+            {
+                "medium": "Handelsblatt",
+                "vorname": "Anna",
+                "nachname": "Muster",
+                "email": "anna.muster@handelsblatt.com",
+                "telefon": "+49 30 111",
+                "ressort": "Finanzen",
+            }
+        ]
+
+
+class DeltaViewTests(unittest.TestCase):
+    def setUp(self):
+        self.matcher = StubMatcher()
+        self.diff_engine = DiffEngine()
+
+    def _first_row(self, structured):
+        rows = self.matcher.build_delta_inputs(structured)
+        delta = self.diff_engine.build_delta_rows(rows)
+        return delta[0]
+
+    def test_official_hit_confirms_journalist(self):
+        row = self._first_row(
+            {
+                "Handelsblatt": {
+                    "official_contacts": [{"vorname": "Anna", "nachname": "Muster", "email": "anna.muster@handelsblatt.com", "telefon": "+49 30 111", "rolle": "Finanzen"}],
+                    "industry_hints": [],
+                    "medium_status": "ok",
+                }
+            }
+        )
+        self.assertEqual(row["Im_Web_gefunden"], "Ja")
+        self.assertIn("Journalist bei Medium bestätigt", row["Was_ist_anders"])
+
+    def test_official_missing_industry_reports_change(self):
+        row = self._first_row(
+            {
+                "Handelsblatt": {"official_contacts": [], "industry_hints": [], "medium_status": "ok"},
+                "kress": {
+                    "official_contacts": [],
+                    "industry_hints": [{"journalist": "Anna Muster", "source": "kress", "hint_type": "Branchenquelle meldet Wechsel", "detail": "..."}],
+                    "medium_status": "ok",
+                },
+            }
+        )
+        self.assertEqual(row["Externer_Hinweis"], "Wechsel in Branchenquelle gemeldet")
+        self.assertIn("wahrscheinlicher Medienwechsel", row["Was_ist_anders"])
+
+    def test_official_conflicts_with_industry(self):
+        row = self._first_row(
+            {
+                "Handelsblatt": {
+                    "official_contacts": [{"vorname": "Anna", "nachname": "Muster", "email": "anna.muster@handelsblatt.com", "telefon": "+49 30 111", "rolle": "Finanzen"}],
+                    "industry_hints": [],
+                    "medium_status": "ok",
+                },
+                "turi2": {
+                    "official_contacts": [],
+                    "industry_hints": [{"journalist": "Anna Muster", "source": "turi2", "hint_type": "Branchenquelle meldet Wechsel", "detail": "..."}],
+                    "medium_status": "ok",
+                },
+            }
+        )
+        self.assertEqual(row["Externer_Hinweis"], "Widerspruch zwischen offizieller Quelle und Branchenquelle")
+        self.assertEqual(row["Pruefen"], "Ja")
+
+    def test_medium_technical_error(self):
+        row = self._first_row(
+            {
+                "Handelsblatt": {"official_contacts": [], "industry_hints": [], "medium_status": "technisch_nicht_erreichbar"}
+            }
+        )
+        self.assertIn("Medium technisch nicht erreichbar", row["Was_ist_anders"])
+
+    def test_medium_probably_inactive(self):
+        row = self._first_row(
+            {
+                "Handelsblatt": {"official_contacts": [], "industry_hints": [], "medium_status": "wahrscheinlich_nicht_mehr_aktiv"}
+            }
+        )
+        self.assertIn("Medium wahrscheinlich nicht mehr aktiv", row["Was_ist_anders"])
+
+
+if __name__ == "__main__":
+    unittest.main()
