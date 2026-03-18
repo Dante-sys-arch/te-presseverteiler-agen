@@ -1,41 +1,15 @@
-"""Pipeline entrypoint that wires all modules together for a dry-run scan."""
+"""Pipeline entrypoint wiring crawler, parser, matcher, diffing and reporting."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-import pandas as pd
-
 from crawler import Crawler
-from parser import Parser, as_records
+from parser import Parser
 from diff_engine import DiffEngine
 from matcher import Matcher
-from scorer import Scorer
 from reporter import Reporter
 from updater import Updater
-
-
-def _load_previous_scored(reports_dir: Path) -> dict[str, list[dict]]:
-    files = sorted(reports_dir.glob("scan_*.xlsx"))
-    if not files:
-        return {}
-    latest = files[-1]
-    try:
-        df = pd.read_excel(latest, sheet_name="scored_candidates")
-    except Exception:
-        return {}
-
-    required = {"medium", "email"}
-    if not required.issubset(set(df.columns)):
-        return {}
-
-    previous: dict[str, list[dict]] = {}
-    for _, row in df.fillna("").iterrows():
-        medium = str(row.get("medium", "")).strip()
-        if not medium:
-            continue
-        previous.setdefault(medium, []).append({k: str(v) for k, v in row.to_dict().items()})
-    return previous
 
 
 def run_pipeline(base_dir: Path) -> Path:
@@ -44,24 +18,25 @@ def run_pipeline(base_dir: Path) -> Path:
     reports_dir.mkdir(parents=True, exist_ok=True)
 
     master_file = base_dir / "data" / "master" / "MASTER_DACHLILUX.xlsx"
-    crawler = Crawler(config_dir / "media_targets.csv", base_dir / "snapshots")
+    crawler = Crawler(
+        config_dir / "media_targets.csv",
+        base_dir / "snapshots",
+        source_rules_file=config_dir / "source_rules.yaml",
+        secondary_sources_file=config_dir / "secondary_sources.yaml",
+    )
     parser = Parser()
     matcher = Matcher(config_dir / "mandate_mapping.csv", master_file)
-    scorer = Scorer()
     diff_engine = DiffEngine()
     reporter = Reporter(reports_dir)
     updater = Updater(master_file, base_dir / "backups")
 
     raw = crawler.crawl()
-    parsed = parser.parse(raw)
-    parsed_records = as_records(parsed)
-    matched = matcher.match(parsed_records)
-    scored = scorer.score(matched)
-    previous = _load_previous_scored(reports_dir)
-    diffs = diff_engine.compare(scored, previous=previous)
-    _update_plan = updater.prepare(approved_changes={k: [] for k in scored})
+    structured = parser.parse_structured(raw)
+    matched_rows = matcher.build_delta_inputs(structured)
+    delta_rows = diff_engine.build_delta_rows(matched_rows)
 
-    report_path = reporter.write(scored, diffs=diffs, crawl_info=raw)
+    _update_plan = updater.prepare(approved_changes={"delta": delta_rows})
+    report_path = reporter.write(delta_rows, crawl_info=raw)
     return report_path
 
 

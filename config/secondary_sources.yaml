@@ -1,0 +1,13 @@
+sources:
+  - name: kress
+    target_pages:
+      - https://kress.de/news
+  - name: turi2
+    target_pages:
+      - https://turi2.de/aktuell/
+  - name: MEEDIA
+    target_pages:
+      - https://meedia.de/
+  - name: horizont
+    target_pages:
+      - https://www.horizont.net/news/

@@ -1,0 +1,19 @@
+levels:
+  official_medium:
+    source_type: official_medium
+    trust_level: high
+    crawling_mode: structured_only
+    allowed_domains: []
+  industry_source:
+    source_type: industry_source
+    trust_level: medium
+    crawling_mode: configured_only
+    allowed_domains:
+      - kress.de
+      - turi2.de
+      - meedia.de
+  open_web:
+    source_type: open_web
+    trust_level: low
+    crawling_mode: disabled_by_default
+    allowed_domains: []
