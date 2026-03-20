@@ -13,6 +13,8 @@ defaults:
     ressortseiten:
       - /politik
       - /wirtschaft
+    interne_suche:
+      - /suche?q={query}
   preferred_contact_pages:
     - /kontakt
     - /impressum
@@ -26,11 +28,105 @@ defaults:
     - https://{domain}/suche?q={query}
     - https://{domain}/search?q={query}
   source_priority:
-    official_medium: hoch
-    industry_source: mittel
-    weak_signal: niedrig
+    impressum: niedrig
+    redaktion: hoch
+    team: hoch
+    kontakt: mittel
+    autorenseiten: hoch
+    ressortseiten: mittel
+    interne_suche: mittel
 
 mediums:
+  "Börsen-Zeitung":
+    primary_domain: boersen-zeitung.de
+    known_paths:
+      impressum:
+        - /impressum
+      redaktion:
+        - /redaktion
+      team:
+        - /team
+      kontakt:
+        - /kontakt
+      autorenseiten:
+        - /autoren
+      ressortseiten:
+        - /maerkte
+        - /banken
+      interne_suche:
+        - /suche?query={query}
+    preferred_contact_pages:
+      - /redaktion
+      - /kontakt
+      - /impressum
+    team_patterns:
+      - https://www.boersen-zeitung.de/redaktion
+      - https://www.boersen-zeitung.de/team
+    author_patterns:
+      - https://www.boersen-zeitung.de/autoren/{slug}
+    search_patterns:
+      - https://www.boersen-zeitung.de/suche?query={query}
+
+  AssCompact:
+    primary_domain: asscompact.de
+    known_paths:
+      impressum:
+        - /impressum
+      redaktion:
+        - /redaktion
+      team:
+        - /team
+      kontakt:
+        - /kontakt
+      autorenseiten:
+        - /autoren
+      ressortseiten:
+        - /versicherung
+        - /finanzen
+      interne_suche:
+        - /suche?query={query}
+    preferred_contact_pages:
+      - /redaktion
+      - /kontakt
+      - /impressum
+    team_patterns:
+      - https://www.asscompact.de/redaktion
+      - https://www.asscompact.de/team
+    author_patterns:
+      - https://www.asscompact.de/autoren/{slug}
+    search_patterns:
+      - https://www.asscompact.de/suche?query={query}
+
+  "WirtschaftsWoche (WiWo)":
+    primary_domain: wiwo.de
+    known_paths:
+      impressum:
+        - /impressum
+      redaktion:
+        - /redaktion
+      team:
+        - /my/wiwo-redaktion
+      kontakt:
+        - /service/kontakt
+      autorenseiten:
+        - /autoren
+      ressortseiten:
+        - /politik
+        - /finanzen
+      interne_suche:
+        - /suchergebnis/{query}
+    preferred_contact_pages:
+      - /redaktion
+      - /service/kontakt
+      - /impressum
+    team_patterns:
+      - https://www.wiwo.de/redaktion
+      - https://www.wiwo.de/my/wiwo-redaktion
+    author_patterns:
+      - https://www.wiwo.de/autoren/{slug}
+    search_patterns:
+      - https://www.wiwo.de/suchergebnis/{query}
+
   Handelsblatt:
     primary_domain: handelsblatt.com
     known_paths:
@@ -47,40 +143,46 @@ mediums:
       ressortseiten:
         - /politik/
         - /finanzen/
+      interne_suche:
+        - /suche?k={query}
     preferred_contact_pages:
       - /service/kontakt/
+      - /unternehmen/handelsblatt-media-group/
       - /impressum
     team_patterns:
       - https://www.handelsblatt.com/politik/deutschland/
+      - https://www.handelsblatt.com/unternehmen/handelsblatt-media-group/
     author_patterns:
       - https://www.handelsblatt.com/autoren/{slug}
     search_patterns:
       - https://www.handelsblatt.com/suche?k={query}
-    source_priority:
-      official_medium: hoch
-      industry_source: mittel
-      weak_signal: niedrig
 
-  "Frankfurter Allgemeine Zeitung (FAZ)":
-    primary_domain: faz.net
+  "The Market (NZZ)":
+    primary_domain: themarket.ch
     known_paths:
       impressum:
         - /impressum
       redaktion:
-        - /aktuell/
+        - /redaktion
       team:
-        - /aktuell/feuilleton/
+        - /team
       kontakt:
-        - /service/
+        - /kontakt
       autorenseiten:
-        - /aktuell/autoren/
+        - /autoren
       ressortseiten:
-        - /aktuell/politik/
-        - /aktuell/wirtschaft/
+        - /investing
+        - /economy
+      interne_suche:
+        - /suche?query={query}
     preferred_contact_pages:
-      - /service/
+      - /redaktion
+      - /kontakt
       - /impressum
+    team_patterns:
+      - https://themarket.ch/redaktion
+      - https://themarket.ch/team
     author_patterns:
-      - https://www.faz.net/aktuell/autoren/{slug}
+      - https://themarket.ch/autoren/{slug}
     search_patterns:
-      - https://www.faz.net/suche/?query={query}
+      - https://themarket.ch/suche?query={query}

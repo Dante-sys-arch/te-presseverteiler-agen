@@ -36,6 +36,7 @@ class Reporter:
         crawl_info: dict[str, list[object]],
         technical_rows: list[dict] | None = None,
         unscanned_rows: list[dict] | None = None,
+        medium_recherche_detail_rows: list[dict] | None = None,
     ) -> Path:
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -71,5 +72,22 @@ class Reporter:
                         )
             pd.DataFrame(tech_rows).to_excel(writer, sheet_name="Technik", index=False)
             pd.DataFrame(tech_rows).to_excel(writer, sheet_name="Quellenpruefung", index=False)
+
+            detail_columns = [
+                "Medium",
+                "Source_Type",
+                "Source_Label",
+                "URL",
+                "Status_Code",
+                "Erfolgreich_geladen",
+                "Kontakte_extrahiert",
+                "Anzahl_Kontakte",
+                "Extraktionsart",
+                "Bewertung_Quelle",
+                "Fehler",
+                "Kommentar",
+            ]
+            detail_df = pd.DataFrame(medium_recherche_detail_rows or []).reindex(columns=detail_columns)
+            detail_df.to_excel(writer, sheet_name="Medium_Recherche_Detail", index=False)
 
         return report_path

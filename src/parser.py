@@ -106,6 +106,19 @@ class Parser:
                         telefon="",
                     )
                 )
+            # parse author links such as /autor/max-mustermann and map to names
+            for slug in re.findall(r"/(?:autor|author|autoren)/([a-z0-9\-]{3,})", text.lower()):
+                parts = [part for part in slug.split("-") if part]
+                if len(parts) >= 2:
+                    contacts.append(
+                        ParsedContact(
+                            vorname=parts[0].title(),
+                            nachname=parts[-1].title(),
+                            rolle=page_type,
+                            email="",
+                            telefon="",
+                        )
+                    )
 
         dedup: dict[tuple[str, str, str], ParsedContact] = {}
         for contact in contacts:
@@ -159,6 +172,7 @@ class Parser:
             contact_expected_sources = 0
             not_found_sources = 0
             technical_failures = 0
+            source_diagnostics: list[dict[str, Any]] = []
 
             for snapshot in snapshots:
                 text = self._clean_text(getattr(snapshot, "content", ""))
@@ -177,7 +191,8 @@ class Parser:
                     official_source_categories.append(expectation.source_category)
                     if expectation.contact_expected:
                         contact_expected_sources += 1
-                    official_contacts.extend(self._extract_contacts(text, page_type=page_type))
+                    extracted_contacts = self._extract_contacts(text, page_type=page_type)
+                    official_contacts.extend(extracted_contacts)
                     if error or (status_code is not None and status_code >= 500):
                         technical_failures += 1
                     else:
@@ -190,6 +205,22 @@ class Parser:
                             "source_name": getattr(snapshot, "source_name", ""),
                             "page_type": page_type,
                             "text": text[:15000],
+                        }
+                    )
+                    source_diagnostics.append(
+                        {
+                            "Medium": key,
+                            "Source_Type": page_type,
+                            "Source_Label": getattr(snapshot, "source_name", ""),
+                            "URL": getattr(snapshot, "url", ""),
+                            "Status_Code": status_code,
+                            "Erfolgreich_geladen": "Ja" if not error and (status_code is None or status_code < 500) else "Nein",
+                            "Kontakte_extrahiert": "Ja" if extracted_contacts else "Nein",
+                            "Anzahl_Kontakte": len(extracted_contacts),
+                            "Extraktionsart": "struktur+regex" if extracted_contacts else "keine",
+                            "Bewertung_Quelle": getattr(snapshot, "source_priority", "") or expectation.source_category,
+                            "Fehler": error or "",
+                            "Kommentar": "nur Impressum geprueft" if page_type == "impressum" and len(snapshots) == 1 else "",
                         }
                     )
                 elif source_type == "industry_source":
@@ -223,6 +254,7 @@ class Parser:
                     "source_categories": official_source_categories,
                     "contact_expected_sources": contact_expected_sources,
                 },
+                "source_diagnostics": source_diagnostics,
             }
         return structured
 
