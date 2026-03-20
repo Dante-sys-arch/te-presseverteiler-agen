@@ -39,12 +39,22 @@ def run_pipeline(base_dir: Path) -> Path:
         if any(getattr(info, "source_type", "") == "official_medium" for info in infos)
     }
     structured = parser.parse_structured(raw)
+    medium_recherche_detail_rows = [
+        row
+        for payload in structured.values()
+        for row in payload.get("source_diagnostics", [])
+    ]
     matched_rows, not_scanned_master_rows = matcher.build_delta_inputs(structured, scan_scope_media=scan_scope_media)
     delta_rows = diff_engine.build_delta_rows(matched_rows)
     unscanned_rows = diff_engine.build_unscanned_rows(not_scanned_master_rows)
 
     _update_plan = updater.prepare(approved_changes={"delta": delta_rows})
-    report_path = reporter.write(delta_rows, crawl_info=raw, unscanned_rows=unscanned_rows)
+    report_path = reporter.write(
+        delta_rows,
+        crawl_info=raw,
+        unscanned_rows=unscanned_rows,
+        medium_recherche_detail_rows=medium_recherche_detail_rows,
+    )
     return report_path
 
 

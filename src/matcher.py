@@ -105,6 +105,16 @@ class Matcher:
             return "weitere Quelle pruefen"
         return "Keine Aktion"
 
+    def _has_reliable_official_evidence(self, evidence: dict[str, list[str]], official_match: dict | None) -> bool:
+        reliable_types = {"team", "redaktion", "autorenseite", "ressortseite", "interne_suche"}
+        if any(evidence.get(page_type) for page_type in reliable_types):
+            return True
+        if official_match:
+            role = str(official_match.get("rolle", "")).lower()
+            if role in reliable_types:
+                return True
+        return False
+
     def load_rules(self) -> list[MandateRule]:
         if not self.mapping_file.exists():
             return []
@@ -282,6 +292,7 @@ class Matcher:
                 hint_matches = self._find_industry_hints(master, all_industry_hints)
                 official_match = self._find_official_match(master, official)
                 official_evidence = self._official_evidence(self._name(master), official_documents)
+                reliable_evidence = self._has_reliable_official_evidence(official_evidence, official_match)
                 coverage = self.coverage_assessor.assess(
                     medium_status=medium_status,
                     source_stats=official_source_stats,
@@ -296,7 +307,7 @@ class Matcher:
                 neuer_stand = ""
                 kommentar = coverage.comment
 
-                if official_match or official_evidence:
+                if reliable_evidence:
                     im_web = "Ja"
                     change_flags.append("Journalist bestaetigt")
                     for field, label in (("email", "E-Mail geaendert"), ("telefon", "Telefon geaendert"), ("rolle", "Ressort geaendert")):
@@ -306,12 +317,10 @@ class Matcher:
                             change_flags.append(label)
                     if official_match:
                         neuer_stand = f"{official_match.get('email', '')} | {official_match.get('telefon', '')} | {official_match.get('rolle', '')}"
-                    if official_evidence.get("team") or official_evidence.get("editorial"):
+                    if official_evidence.get("team") or official_evidence.get("redaktion"):
                         kommentar = "offizielle Teamseite bestaetigt"
                     elif official_evidence.get("autorenseite"):
                         kommentar = "Autorenprofil gefunden"
-                    elif official_evidence.get("impressum"):
-                        kommentar = "nur Impressum vorhanden"
                     elif official_evidence.get("interne_suche"):
                         kommentar = "interne Suchseite mit Treffer"
                     else:
@@ -329,8 +338,12 @@ class Matcher:
                         change_flags.append("Auf offiziellen Seiten nicht bestaetigt")
                         pruefen = "Ja"
                         kommentar = "keine belastbare offizielle Quelle"
-                    else:
+                    elif int(official_source_stats.get("reachable_sources", 0) or 0) >= 3:
                         change_flags.append("Weitere Quelle pruefen")
+                        pruefen = "Ja"
+                        kommentar = "mehrere offizielle Seiten geprueft, keine belastbare Aussage"
+                    else:
+                        change_flags.append("Auf offiziellen Seiten nicht bestaetigt")
                         pruefen = "Ja"
                         kommentar = "nur Impressum vorhanden"
 
@@ -341,7 +354,7 @@ class Matcher:
                     externer_hinweis = "Namensnennung in Branchenquelle"
                     kommentar = "Branchenquelle meldet Wechsel"
 
-                if hint_matches and (official_match or official_evidence):
+                if hint_matches and reliable_evidence:
                     if "Weitere Quelle pruefen" not in change_flags:
                         change_flags.append("Weitere Quelle pruefen")
                     pruefen = "Ja"

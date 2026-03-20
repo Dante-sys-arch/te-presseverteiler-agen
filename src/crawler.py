@@ -25,6 +25,13 @@ OFFICIAL_PAGE_FIELDS = (
     "autorenseiten_url",
     "ressortseiten_url",
 )
+BENCHMARK_MEDIA = {
+    "Börsen-Zeitung",
+    "AssCompact",
+    "WirtschaftsWoche (WiWo)",
+    "Handelsblatt",
+    "The Market (NZZ)",
+}
 
 
 @dataclass(frozen=True)
@@ -44,6 +51,7 @@ class CrawlResult:
     content: str
     snapshot_path: str
     error: str | None = None
+    source_priority: str = ""
 
 
 class Crawler:
@@ -170,6 +178,7 @@ class Crawler:
                     path = str(path or "").strip()
                     if not path:
                         continue
+                    path = path.replace("{query}", "redaktion")
                     final_url = path if path.startswith("http") else f"https://{primary_domain.rstrip('/')}/{path.lstrip('/')}"
                     urls.append((str(source_name), final_url))
 
@@ -177,6 +186,7 @@ class Crawler:
             for path in preferred_contact_pages if isinstance(preferred_contact_pages, list) else []:
                 clean = str(path or "").strip()
                 if clean:
+                    clean = clean.replace("{query}", "redaktion")
                     final_url = clean if clean.startswith("http") else f"https://{primary_domain.rstrip('/')}/{clean.lstrip('/')}"
                     urls.append(("kontakt", final_url))
 
@@ -187,6 +197,17 @@ class Crawler:
                 seen.add(url)
                 dedup.append((source_name, url))
         return dedup
+
+    def _source_priority(self, medium: str, source_name: str, profiles: dict) -> str:
+        profile = self._profile(medium, profiles)
+        priority_map = profile.get("source_priority", {}) or {}
+        if not isinstance(priority_map, dict):
+            return ""
+        normalized = str(source_name or "").strip().lower()
+        for key, value in priority_map.items():
+            if str(key).strip().lower() == normalized:
+                return str(value or "")
+        return str(priority_map.get("official_medium", ""))
 
     def _build_domain_research_urls(self, medium: str, profiles: dict, names: list[str]) -> list[tuple[str, str]]:
         profile = self._profile(medium, profiles)
@@ -247,7 +268,16 @@ class Crawler:
         host = (urlparse(url).hostname or "").lower()
         return any(host == domain.lower() or host.endswith(f".{domain.lower()}") for domain in allowed)
 
-    def _fetch(self, *, medium: str, source_name: str, source_type: str, url: str, session: requests.Session) -> CrawlResult:
+    def _fetch(
+        self,
+        *,
+        medium: str,
+        source_name: str,
+        source_type: str,
+        url: str,
+        session: requests.Session,
+        source_priority: str = "",
+    ) -> CrawlResult:
         status_code: int | None = None
         content = ""
         error: str | None = None
@@ -269,6 +299,7 @@ class Crawler:
             content=content,
             snapshot_path=str(snapshot),
             error=error,
+            source_priority=source_priority,
         )
 
     def _official_source_name(self, url: str) -> str:
@@ -303,6 +334,19 @@ class Crawler:
             official_urls = self._build_official_urls(target.medium, target.official_urls, profiles)
             research_urls = self._build_domain_research_urls(target.medium, profiles, candidate_names)
             medium_urls = official_urls + research_urls
+            if target.medium in BENCHMARK_MEDIA:
+                required = {"impressum", "redaktion", "team", "kontakt", "autorenseiten", "ressortseiten", "interne_suche"}
+                present = {name for name, _ in medium_urls}
+                for source_name, url in official_urls:
+                    if source_name in required:
+                        present.add(source_name)
+                missing_required = required - present
+                if missing_required:
+                    fallback_urls = self._build_official_urls(target.medium, [], profiles)
+                    for source_name, url in fallback_urls:
+                        if source_name in missing_required:
+                            medium_urls.append((source_name, url))
+
             for idx, (source_name, url) in enumerate(medium_urls):
                 if not self._domain_allowed("official_medium", url, rules):
                     continue
@@ -312,6 +356,7 @@ class Crawler:
                     source_type="official_medium",
                     url=url,
                     session=session,
+                    source_priority=self._source_priority(target.medium, source_name, profiles),
                 )
                 results.setdefault(target.medium, []).append(result)
                 if idx < len(medium_urls) - 1:
