@@ -4,6 +4,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+ALLOWED_CHANGE_TYPES = {
+    "Journalist bestaetigt",
+    "Journalist bei Medium nicht mehr gefunden",
+    "Auf aktueller Quelle nicht belegt",
+    "Weitere Quelle pruefen",
+    "Medium nicht erreichbar",
+    "Wahrscheinlicher Medienwechsel",
+    "E-Mail geaendert",
+    "Telefon geaendert",
+    "Ressort geaendert",
+    "Nicht im aktuellen Scan-Scope",
+}
+
 
 @dataclass(frozen=True)
 class DiffResult:
@@ -16,6 +29,11 @@ class DiffResult:
 class DiffEngine:
     """Generates delta outputs for reporting while retaining backward compatibility."""
 
+    def _normalize_change_text(self, raw: str) -> str:
+        parts = [part.strip() for part in str(raw or "").split(";") if part.strip()]
+        normalized = [part for part in parts if part in ALLOWED_CHANGE_TYPES]
+        return "; ".join(dict.fromkeys(normalized or parts))
+
     def build_delta_rows(self, matched_rows: list[dict]) -> list[dict]:
         output: list[dict] = []
         for row in matched_rows:
@@ -26,7 +44,7 @@ class DiffEngine:
                     "Im_Master": row.get("im_master", "Ja"),
                     "Im_Web_gefunden": row.get("im_web_gefunden", "Nein"),
                     "Externer_Hinweis": row.get("externer_hinweis", "kein externer Hinweis"),
-                    "Was_ist_anders": row.get("was_ist_anders", ""),
+                    "Was_ist_anders": self._normalize_change_text(row.get("was_ist_anders", "")),
                     "Alter_Stand": row.get("alter_stand", ""),
                     "Neuer_Stand": row.get("neuer_stand", ""),
                     "Quelle": row.get("quelle", ""),

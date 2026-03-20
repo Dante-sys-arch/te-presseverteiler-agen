@@ -61,12 +61,17 @@ class DeltaViewTests(unittest.TestCase):
             scan_scope_media={"Handelsblatt"},
         )
         self.assertEqual(row["Im_Web_gefunden"], "Ja")
-        self.assertIn("Journalist bei Medium bestätigt", row["Was_ist_anders"])
+        self.assertIn("Journalist bestaetigt", row["Was_ist_anders"])
 
-    def test_official_missing_industry_reports_change(self):
+    def test_official_missing_industry_reports_probable_change(self):
         row = self._first_row(
             {
-                "Handelsblatt": {"official_contacts": [], "industry_hints": [], "medium_status": "ok"},
+                "Handelsblatt": {
+                    "official_contacts": [],
+                    "industry_hints": [],
+                    "medium_status": "ok",
+                    "official_source_stats": {"total_sources": 1, "reachable_sources": 1, "has_impressum": True, "has_editorial_pages": False},
+                },
                 "kress": {
                     "official_contacts": [],
                     "industry_hints": [{"journalist": "Anna Muster", "source": "kress", "hint_type": "Branchenquelle meldet Wechsel", "detail": "..."}],
@@ -75,8 +80,9 @@ class DeltaViewTests(unittest.TestCase):
             },
             scan_scope_media={"Handelsblatt"},
         )
-        self.assertEqual(row["Externer_Hinweis"], "Wechsel in Branchenquelle gemeldet")
-        self.assertIn("wahrscheinlicher Medienwechsel", row["Was_ist_anders"])
+        self.assertIn("Plausibler Wechselhinweis aus kress", row["Externer_Hinweis"])
+        self.assertIn("Wahrscheinlicher Medienwechsel", row["Was_ist_anders"])
+        self.assertEqual(row["Empfohlene_Aktion"], "weitere Quelle pruefen")
 
     def test_official_conflicts_with_industry(self):
         row = self._first_row(
@@ -94,8 +100,9 @@ class DeltaViewTests(unittest.TestCase):
             },
             scan_scope_media={"Handelsblatt"},
         )
-        self.assertEqual(row["Externer_Hinweis"], "Widerspruch zwischen offizieller Quelle und Branchenquelle")
+        self.assertIn("Plausibler Wechselhinweis aus turi2", row["Externer_Hinweis"])
         self.assertEqual(row["Pruefen"], "Ja")
+        self.assertIn("Weitere Quelle pruefen", row["Was_ist_anders"])
 
     def test_medium_technical_error(self):
         row = self._first_row(
@@ -104,17 +111,64 @@ class DeltaViewTests(unittest.TestCase):
             },
             scan_scope_media={"Handelsblatt"},
         )
-        self.assertIn("Medium_nicht_erreichbar", row["Was_ist_anders"])
+        self.assertIn("Medium nicht erreichbar", row["Was_ist_anders"])
         self.assertNotIn("Journalist bei Medium nicht mehr gefunden", row["Was_ist_anders"])
+        self.assertEqual(row["Empfohlene_Aktion"], "spaeter erneut pruefen oder URL korrigieren")
+        self.assertEqual(row["Kommentar"], "Quelle technisch nicht erreichbar")
 
-    def test_medium_probably_inactive(self):
+    def test_impressum_only_uses_soft_wording(self):
         row = self._first_row(
             {
-                "Handelsblatt": {"official_contacts": [], "industry_hints": [], "medium_status": "wahrscheinlich_nicht_mehr_aktiv"}
+                "Handelsblatt": {
+                    "official_contacts": [],
+                    "industry_hints": [],
+                    "medium_status": "ok",
+                    "official_source_stats": {"total_sources": 1, "reachable_sources": 1, "has_impressum": True, "has_editorial_pages": False},
+                }
             },
             scan_scope_media={"Handelsblatt"},
         )
-        self.assertIn("Medium wahrscheinlich nicht mehr aktiv", row["Was_ist_anders"])
+        self.assertIn("Auf aktueller Quelle nicht belegt", row["Was_ist_anders"])
+        self.assertNotIn("Journalist bei Medium nicht mehr gefunden", row["Was_ist_anders"])
+        self.assertEqual(row["Kommentar"], "nur Impressum vorhanden")
+
+    def test_high_coverage_missing_contact_marks_not_found(self):
+        row = self._first_row(
+            {
+                "Handelsblatt": {
+                    "official_contacts": [],
+                    "industry_hints": [],
+                    "medium_status": "ok",
+                    "official_source_stats": {"total_sources": 3, "reachable_sources": 3, "has_impressum": True, "has_editorial_pages": True},
+                }
+            },
+            scan_scope_media={"Handelsblatt"},
+        )
+        self.assertIn("Journalist bei Medium nicht mehr gefunden", row["Was_ist_anders"])
+        self.assertEqual(row["Empfohlene_Aktion"], "deaktivieren oder manuell pruefen")
+
+    def test_weak_official_with_external_hint_is_not_final_missing(self):
+        row = self._first_row(
+            {
+                "Handelsblatt": {
+                    "official_contacts": [],
+                    "industry_hints": [],
+                    "medium_status": "ok",
+                    "official_source_stats": {"total_sources": 1, "reachable_sources": 1, "has_impressum": True, "has_editorial_pages": False},
+                },
+                "kress": {
+                    "official_contacts": [],
+                    "industry_hints": [{"journalist": "Anna Muster", "source": "kress", "hint_type": "Branchenquelle meldet Wechsel", "detail": "..."}],
+                    "medium_status": "ok",
+                },
+            },
+            scan_scope_media={"Handelsblatt"},
+        )
+        self.assertNotIn("Journalist bei Medium nicht mehr gefunden", row["Was_ist_anders"])
+        self.assertTrue(
+            "Wahrscheinlicher Medienwechsel" in row["Was_ist_anders"] or "Weitere Quelle pruefen" in row["Was_ist_anders"]
+        )
+        self.assertIn("Plausibler Wechselhinweis", row["Externer_Hinweis"])
 
     def test_unscanned_medium_not_reported_as_missing_in_main_sheet(self):
         main_rows, unscanned_rows = self._rows(

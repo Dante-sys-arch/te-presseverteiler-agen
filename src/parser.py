@@ -42,6 +42,16 @@ class Parser:
     def __init__(self) -> None:
         self.validator = Validator()
 
+    def _classify_official_page(self, url: str) -> str:
+        target = str(url or "").lower()
+        if "impressum" in target:
+            return "impressum"
+        if any(token in target for token in ("redaktion", "team", "autor", "ressort")):
+            return "editorial"
+        if "kontakt" in target:
+            return "kontakt"
+        return "other"
+
     def _clean_text(self, text: str) -> str:
         cleaned = str(text or "")
         cleaned = cleaned.replace("\\u003e", ">").replace("\\u003c", "<")
@@ -115,6 +125,9 @@ class Parser:
             official_contacts: list[ParsedContact] = []
             official_status = "ok"
             industry_hints: list[IndustryHint] = []
+            official_total_sources = 0
+            official_reachable_sources = 0
+            official_page_types: set[str] = set()
 
             for snapshot in snapshots:
                 text = self._clean_text(getattr(snapshot, "content", ""))
@@ -123,11 +136,15 @@ class Parser:
                 error = getattr(snapshot, "error", None)
 
                 if source_type == "official_medium":
+                    official_total_sources += 1
+                    official_page_types.add(self._classify_official_page(getattr(snapshot, "url", "")))
                     official_contacts.extend(self._extract_contacts(text))
                     if error or (status_code is not None and status_code >= 500):
                         official_status = "technisch_nicht_erreichbar"
-                    elif status_code in (404, 410):
-                        official_status = "wahrscheinlich_nicht_mehr_aktiv"
+                    else:
+                        official_reachable_sources += 1
+                        if status_code in (404, 410):
+                            official_status = "wahrscheinlich_nicht_mehr_aktiv"
                 elif source_type == "industry_source":
                     industry_hints.extend(self._extract_industry_hints(text, getattr(snapshot, "source_name", key)))
 
@@ -135,6 +152,12 @@ class Parser:
                 "official_contacts": [asdict(c) for c in official_contacts],
                 "industry_hints": [asdict(h) for h in industry_hints],
                 "medium_status": official_status,
+                "official_source_stats": {
+                    "total_sources": official_total_sources,
+                    "reachable_sources": official_reachable_sources,
+                    "has_impressum": "impressum" in official_page_types,
+                    "has_editorial_pages": "editorial" in official_page_types,
+                },
             }
         return structured
 

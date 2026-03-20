@@ -282,6 +282,65 @@ class ValidationResult:
     cleaned_phone: str
 
 
+
+
+@dataclass(frozen=True)
+class SourceCoverageAssessment:
+    level: str
+    comment: str
+
+
+class SourceCoverageAssessor:
+    """Rates how reliable official medium sources are for absence decisions."""
+
+    def assess(
+        self,
+        *,
+        medium_status: str,
+        source_stats: dict | None = None,
+        has_external_hint: bool = False,
+    ) -> SourceCoverageAssessment:
+        stats = source_stats or {}
+        total_sources = int(stats.get("total_sources", 0) or 0)
+        reachable_sources = int(stats.get("reachable_sources", 0) or 0)
+        has_impressum = bool(stats.get("has_impressum", False))
+        has_editorial_pages = bool(stats.get("has_editorial_pages", False))
+
+        if medium_status == "technisch_nicht_erreichbar" or reachable_sources == 0:
+            return SourceCoverageAssessment(level="niedrig", comment="Quelle technisch nicht erreichbar")
+
+        score = 0
+        if reachable_sources >= 2:
+            score += 2
+        elif reachable_sources == 1:
+            score += 1
+
+        if has_editorial_pages:
+            score += 2
+        elif has_impressum:
+            score += 1
+
+        if total_sources >= 3:
+            score += 1
+
+        if has_editorial_pages and score >= 4:
+            level = "hoch"
+        elif score >= 2:
+            level = "mittel"
+        else:
+            level = "niedrig"
+
+        if not has_editorial_pages and has_impressum:
+            comment = "nur Impressum vorhanden"
+        elif not has_editorial_pages:
+            comment = "keine Redaktionsseite gefunden"
+        else:
+            comment = "offizielle Quelle bestaetigt Abweichung" if level == "hoch" else "Quellenlage begrenzt"
+
+        if has_external_hint and level != "hoch":
+            comment = "nur externer Hinweis vorhanden"
+
+        return SourceCoverageAssessment(level=level, comment=comment)
 class Validator:
     """Validates records in one central place with status + confidence."""
 
