@@ -8,6 +8,7 @@ import re
 from typing import Any
 
 from validator import Validator
+from validator import SourceCoverageAssessor
 
 
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
@@ -41,6 +42,7 @@ class Parser:
 
     def __init__(self) -> None:
         self.validator = Validator()
+        self.coverage_assessor = SourceCoverageAssessor()
 
     def _classify_official_page(self, url: str) -> str:
         target = str(url or "").lower()
@@ -128,6 +130,10 @@ class Parser:
             official_total_sources = 0
             official_reachable_sources = 0
             official_page_types: set[str] = set()
+            official_source_categories: list[str] = []
+            contact_expected_sources = 0
+            not_found_sources = 0
+            technical_failures = 0
 
             for snapshot in snapshots:
                 text = self._clean_text(getattr(snapshot, "content", ""))
@@ -138,15 +144,29 @@ class Parser:
                 if source_type == "official_medium":
                     official_total_sources += 1
                     official_page_types.add(self._classify_official_page(getattr(snapshot, "url", "")))
+                    expectation = self.coverage_assessor.classify_source_expectation(
+                        getattr(snapshot, "source_name", ""),
+                        getattr(snapshot, "url", ""),
+                    )
+                    official_source_categories.append(expectation.source_category)
+                    if expectation.contact_expected:
+                        contact_expected_sources += 1
                     official_contacts.extend(self._extract_contacts(text))
                     if error or (status_code is not None and status_code >= 500):
-                        official_status = "technisch_nicht_erreichbar"
+                        technical_failures += 1
                     else:
                         official_reachable_sources += 1
                         if status_code in (404, 410):
-                            official_status = "wahrscheinlich_nicht_mehr_aktiv"
+                            not_found_sources += 1
                 elif source_type == "industry_source":
                     industry_hints.extend(self._extract_industry_hints(text, getattr(snapshot, "source_name", key)))
+
+            if official_total_sources and official_reachable_sources == 0:
+                official_status = "technisch_nicht_erreichbar"
+            elif official_total_sources and not_found_sources == official_total_sources:
+                official_status = "wahrscheinlich_nicht_mehr_aktiv"
+            elif technical_failures and official_reachable_sources == 0:
+                official_status = "technisch_nicht_erreichbar"
 
             structured[key] = {
                 "official_contacts": [asdict(c) for c in official_contacts],
@@ -157,6 +177,8 @@ class Parser:
                     "reachable_sources": official_reachable_sources,
                     "has_impressum": "impressum" in official_page_types,
                     "has_editorial_pages": "editorial" in official_page_types,
+                    "source_categories": official_source_categories,
+                    "contact_expected_sources": contact_expected_sources,
                 },
             }
         return structured

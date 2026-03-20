@@ -117,20 +117,28 @@ class DeltaViewTests(unittest.TestCase):
         self.assertEqual(row["Kommentar"], "Quelle technisch nicht erreichbar")
 
     def test_impressum_only_uses_soft_wording(self):
-        row = self._first_row(
+        delta, _ = self._rows(
             {
                 "Handelsblatt": {
                     "official_contacts": [],
                     "industry_hints": [],
                     "medium_status": "ok",
-                    "official_source_stats": {"total_sources": 1, "reachable_sources": 1, "has_impressum": True, "has_editorial_pages": False},
+                    "official_source_stats": {
+                        "total_sources": 1,
+                        "reachable_sources": 1,
+                        "has_impressum": True,
+                        "has_editorial_pages": False,
+                        "contact_expected_sources": 0,
+                    },
                 }
             },
             scan_scope_media={"Handelsblatt"},
         )
-        self.assertIn("Auf aktueller Quelle nicht belegt", row["Was_ist_anders"])
-        self.assertNotIn("Journalist bei Medium nicht mehr gefunden", row["Was_ist_anders"])
-        self.assertEqual(row["Kommentar"], "nur Impressum vorhanden")
+        self.assertEqual(len(delta), 1)
+        row = delta[0]
+        self.assertEqual(row["Journalist"], "(Medium-Ebene)")
+        self.assertIn("Weitere Quelle pruefen", row["Was_ist_anders"])
+        self.assertIn("Medium nur ueber knappe Quelle geprueft", row["Kommentar"])
 
     def test_high_coverage_missing_contact_marks_not_found(self):
         row = self._first_row(
@@ -183,6 +191,41 @@ class DeltaViewTests(unittest.TestCase):
         self.assertEqual(len(unscanned_rows), 1)
         self.assertEqual(unscanned_rows[0]["Medium"], "NichtGescannt Medium")
         self.assertIn("Nicht im aktuellen Scan-Scope", unscanned_rows[0]["Was_ist_anders"])
+
+    def test_mittel_coverage_with_team_page_uses_official_not_proven(self):
+        row = self._first_row(
+            {
+                "Handelsblatt": {
+                    "official_contacts": [],
+                    "industry_hints": [],
+                    "medium_status": "ok",
+                    "official_source_stats": {
+                        "total_sources": 1,
+                        "reachable_sources": 1,
+                        "has_impressum": False,
+                        "has_editorial_pages": True,
+                        "contact_expected_sources": 1,
+                    },
+                }
+            },
+            scan_scope_media={"Handelsblatt"},
+        )
+        self.assertIn("Auf offizieller Quelle nicht belegt", row["Was_ist_anders"])
+        self.assertEqual(row["Kommentar"], "Kontakt auf belastbarer Quelle nicht sichtbar")
+
+    def test_medium_probably_inactive(self):
+        row = self._first_row(
+            {
+                "Handelsblatt": {
+                    "official_contacts": [],
+                    "industry_hints": [],
+                    "medium_status": "wahrscheinlich_nicht_mehr_aktiv",
+                }
+            },
+            scan_scope_media={"Handelsblatt"},
+        )
+        self.assertEqual(row["Journalist"], "(Medium-Ebene)")
+        self.assertIn("Medium wahrscheinlich nicht mehr aktiv", row["Was_ist_anders"])
 
 
 if __name__ == "__main__":

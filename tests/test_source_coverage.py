@@ -46,6 +46,14 @@ class SourceCoverageTests(unittest.TestCase):
         )
         self.assertEqual(result.comment, "nur externer Hinweis vorhanden")
 
+    def test_source_expectation_classification(self):
+        result = self.assessor.classify_source_expectation("team", "https://example.com/team")
+        self.assertEqual(result.source_category, "teamquelle")
+        self.assertTrue(result.contact_expected)
+        imp = self.assessor.classify_source_expectation("impressum", "https://example.com/impressum")
+        self.assertEqual(imp.source_category, "impressum_only")
+        self.assertFalse(imp.contact_expected)
+
 
 if __name__ == "__main__":
     unittest.main()

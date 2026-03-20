@@ -4,6 +4,13 @@ levels:
     trust_level: high
     crawling_mode: structured_only
     allowed_domains: []
+    expected_source_types:
+      - impressum
+      - redaktion
+      - team
+      - kontakt
+      - autorenseiten
+      - ressortseiten
   industry_source:
     source_type: industry_source
     trust_level: medium
@@ -16,4 +23,5 @@ levels:
     source_type: open_web
     trust_level: low
     crawling_mode: disabled_by_default
+    enabled: false
     allowed_domains: []

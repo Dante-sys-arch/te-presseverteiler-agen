@@ -290,6 +290,12 @@ class SourceCoverageAssessment:
     comment: str
 
 
+@dataclass(frozen=True)
+class SourceExpectation:
+    source_category: str
+    contact_expected: bool
+
+
 class SourceCoverageAssessor:
     """Rates how reliable official medium sources are for absence decisions."""
 
@@ -341,6 +347,20 @@ class SourceCoverageAssessor:
             comment = "nur externer Hinweis vorhanden"
 
         return SourceCoverageAssessment(level=level, comment=comment)
+
+    def classify_source_expectation(self, source_name: str, url: str) -> SourceExpectation:
+        marker = f"{source_name} {url}".lower()
+        if any(token in marker for token in ("kontakt", "contact")):
+            return SourceExpectation(source_category="kontaktquelle", contact_expected=True)
+        if any(token in marker for token in ("team", "redaktion", "editorial")):
+            return SourceExpectation(source_category="teamquelle", contact_expected=True)
+        if any(token in marker for token in ("autor", "author")):
+            return SourceExpectation(source_category="autorenseite", contact_expected=True)
+        if "impressum" in marker:
+            return SourceExpectation(source_category="impressum_only", contact_expected=False)
+        if any(token in marker for token in ("rss", "sitemap", "cdn", "api")):
+            return SourceExpectation(source_category="technische_quelle", contact_expected=False)
+        return SourceExpectation(source_category="kontaktquelle", contact_expected=True)
 class Validator:
     """Validates records in one central place with status + confidence."""
 
