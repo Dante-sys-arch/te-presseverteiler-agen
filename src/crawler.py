@@ -167,6 +167,22 @@ class Crawler:
             error=error,
         )
 
+    def _official_source_name(self, url: str) -> str:
+        lower = str(url or "").lower()
+        if "impressum" in lower:
+            return "impressum"
+        if "kontakt" in lower:
+            return "kontakt"
+        if "team" in lower:
+            return "team"
+        if "redaktion" in lower:
+            return "redaktion"
+        if "autor" in lower:
+            return "autorenseite"
+        if "ressort" in lower:
+            return "ressortseite"
+        return "official"
+
     def crawl(self) -> dict[str, list[CrawlResult]]:
         """Fetch official medium pages and curated industry sources."""
         rules = self._load_yaml(self.source_rules_file)
@@ -181,7 +197,7 @@ class Crawler:
                     continue
                 result = self._fetch(
                     medium=target.medium,
-                    source_name="official",
+                    source_name=self._official_source_name(url),
                     source_type="official_medium",
                     url=url,
                     session=session,

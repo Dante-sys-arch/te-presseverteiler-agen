@@ -7,9 +7,10 @@ from dataclasses import dataclass, field
 ALLOWED_CHANGE_TYPES = {
     "Journalist bestaetigt",
     "Journalist bei Medium nicht mehr gefunden",
-    "Auf aktueller Quelle nicht belegt",
+    "Auf offizieller Quelle nicht belegt",
     "Weitere Quelle pruefen",
     "Medium nicht erreichbar",
+    "Medium wahrscheinlich nicht mehr aktiv",
     "Wahrscheinlicher Medienwechsel",
     "E-Mail geaendert",
     "Telefon geaendert",

@@ -11,3 +11,6 @@ sources:
   - name: horizont
     target_pages:
       - https://www.horizont.net/news/
+  - name: newsroom
+    target_pages:
+      - https://www.newsroom.de/news/

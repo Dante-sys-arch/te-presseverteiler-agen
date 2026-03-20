@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import csv
+from collections import defaultdict
 
 import pandas as pd
 from rapidfuzz import fuzz
@@ -36,9 +37,11 @@ class Matcher:
     def _recommended_action(self, change_flags: list[str]) -> str:
         if "Medium nicht erreichbar" in change_flags:
             return "spaeter erneut pruefen oder URL korrigieren"
+        if "Medium wahrscheinlich nicht mehr aktiv" in change_flags:
+            return "Mediumstatus manuell pruefen"
         if "Journalist bei Medium nicht mehr gefunden" in change_flags:
             return "deaktivieren oder manuell pruefen"
-        if "Auf aktueller Quelle nicht belegt" in change_flags:
+        if "Auf offizieller Quelle nicht belegt" in change_flags:
             return "manuell pruefen"
         if "Weitere Quelle pruefen" in change_flags:
             return "weitere Quelle pruefen"
@@ -113,6 +116,10 @@ class Matcher:
         scan_scope_media: set[str] | None = None,
     ) -> tuple[list[dict], list[dict]]:
         master_contacts = self.load_master_contacts()
+        master_by_medium: dict[str, list[dict]] = defaultdict(list)
+        for contact in master_contacts:
+            master_by_medium[contact.get("medium", "")].append(contact)
+
         all_industry_hints: list[dict] = []
         for payload in parsed_structured.values():
             all_industry_hints.extend(payload.get("industry_hints", []))
@@ -120,99 +127,173 @@ class Matcher:
         scoped_media = scan_scope_media
         rows: list[dict] = []
         not_scanned_rows: list[dict] = []
-        for master in master_contacts:
-            medium = master.get("medium", "")
+        for medium, medium_master_contacts in master_by_medium.items():
             if scoped_media is not None and medium not in scoped_media:
-                not_scanned_rows.append(
-                    {
-                        "medium": medium,
-                        "journalist": self._name(master),
-                        "im_master": "Ja",
-                        "im_web_gefunden": "",
-                        "externer_hinweis": "",
-                        "was_ist_anders": "Nicht im aktuellen Scan-Scope",
-                        "alter_stand": f"{master.get('email', '')} | {master.get('telefon', '')} | {master.get('ressort', '')}",
-                        "neuer_stand": "",
-                        "quelle": "",
-                        "empfohlene_aktion": "Keine Aktion",
-                        "pruefen": "Nein",
-                        "kommentar": "",
-                    }
-                )
+                for master in medium_master_contacts:
+                    not_scanned_rows.append(
+                        {
+                            "medium": medium,
+                            "journalist": self._name(master),
+                            "im_master": "Ja",
+                            "im_web_gefunden": "",
+                            "externer_hinweis": "",
+                            "was_ist_anders": "Nicht im aktuellen Scan-Scope",
+                            "alter_stand": f"{master.get('email', '')} | {master.get('telefon', '')} | {master.get('ressort', '')}",
+                            "neuer_stand": "",
+                            "quelle": "",
+                            "empfohlene_aktion": "Keine Aktion",
+                            "pruefen": "Nein",
+                            "kommentar": "",
+                        }
+                    )
                 continue
             payload = parsed_structured.get(medium, {})
             official = payload.get("official_contacts", [])
             medium_status = payload.get("medium_status", "ok")
             official_source_stats = payload.get("official_source_stats", {})
-            hint_matches = self._find_industry_hints(master, all_industry_hints)
-            official_match = self._find_official_match(master, official)
+            has_expected_contact_source = int(official_source_stats.get("contact_expected_sources", 0) or 0) > 0
+
             coverage = self.coverage_assessor.assess(
                 medium_status=medium_status,
                 source_stats=official_source_stats,
-                has_external_hint=bool(hint_matches),
+                has_external_hint=False,
             )
-
-            change_flags: list[str] = []
-            externer_hinweis = self._compose_external_hint(hint_matches)
-            pruefen = "Nein"
-            im_web = "Nein"
-            neuer_stand = ""
-            kommentar = coverage.comment
+            aggregated_hints = [
+                hint
+                for master in medium_master_contacts
+                for hint in self._find_industry_hints(master, all_industry_hints)
+            ]
+            weak_medium_only = coverage.level == "niedrig" or (
+                coverage.level == "mittel" and not has_expected_contact_source
+            )
 
             if medium_status == "technisch_nicht_erreichbar":
-                change_flags.append("Medium nicht erreichbar")
-                pruefen = "Ja"
-                im_web = "Unbekannt"
-                kommentar = "Quelle technisch nicht erreichbar"
-            elif official_match:
-                im_web = "Ja"
-                change_flags.append("Journalist bestaetigt")
-                for field, label in (("email", "E-Mail geaendert"), ("telefon", "Telefon geaendert"), ("rolle", "Ressort geaendert")):
-                    old = (master.get(field if field != "rolle" else "ressort", "") or "").strip().lower()
-                    new = (official_match.get(field, "") or "").strip().lower()
-                    if old and new and old != new:
-                        change_flags.append(label)
-                neuer_stand = f"{official_match.get('email', '')} | {official_match.get('telefon', '')} | {official_match.get('rolle', '')}"
-                kommentar = "offizielle Quelle bestaetigt Abweichung" if len(change_flags) > 1 else "offizielle Quelle bestaetigt Kontakt"
-            else:
-                if hint_matches and coverage.level != "hoch":
-                    change_flags.append("Wahrscheinlicher Medienwechsel")
-                    pruefen = "Ja"
-                elif coverage.level == "hoch":
-                    change_flags.append("Journalist bei Medium nicht mehr gefunden")
-                    pruefen = "Ja"
-                    kommentar = "offizielle Quelle bestaetigt Abweichung"
-                elif coverage.level == "mittel":
-                    change_flags.append("Auf aktueller Quelle nicht belegt")
-                    pruefen = "Ja"
+                rows.append(
+                    {
+                        "medium": medium,
+                        "journalist": "(Medium-Ebene)",
+                        "im_master": "Ja",
+                        "im_web_gefunden": "Unbekannt",
+                        "externer_hinweis": self._compose_external_hint(aggregated_hints),
+                        "was_ist_anders": "Medium nicht erreichbar",
+                        "alter_stand": "",
+                        "neuer_stand": "",
+                        "quelle": "offizielle Mediumsquelle",
+                        "empfohlene_aktion": "spaeter erneut pruefen oder URL korrigieren",
+                        "pruefen": "Ja",
+                        "kommentar": "Quelle technisch nicht erreichbar",
+                    }
+                )
+                continue
+
+            if medium_status == "wahrscheinlich_nicht_mehr_aktiv":
+                rows.append(
+                    {
+                        "medium": medium,
+                        "journalist": "(Medium-Ebene)",
+                        "im_master": "Ja",
+                        "im_web_gefunden": "Unbekannt",
+                        "externer_hinweis": self._compose_external_hint(aggregated_hints),
+                        "was_ist_anders": "Medium wahrscheinlich nicht mehr aktiv",
+                        "alter_stand": "",
+                        "neuer_stand": "",
+                        "quelle": "offizielle Mediumsquelle",
+                        "empfohlene_aktion": "Mediumstatus manuell pruefen",
+                        "pruefen": "Ja",
+                        "kommentar": "keine Team-/Autorenseite vorhanden",
+                    }
+                )
+                continue
+
+            if weak_medium_only and not official and not aggregated_hints:
+                rows.append(
+                    {
+                        "medium": medium,
+                        "journalist": "(Medium-Ebene)",
+                        "im_master": "Ja",
+                        "im_web_gefunden": "Nein",
+                        "externer_hinweis": "kein externer Hinweis",
+                        "was_ist_anders": "Weitere Quelle pruefen",
+                        "alter_stand": "",
+                        "neuer_stand": "",
+                        "quelle": "offizielle Mediumsquelle",
+                        "empfohlene_aktion": "weitere Quelle pruefen",
+                        "pruefen": "Ja",
+                        "kommentar": "Medium nur ueber knappe Quelle geprueft; Weitere belastbare Quelle erforderlich",
+                    }
+                )
+                continue
+
+            for master in medium_master_contacts:
+                hint_matches = self._find_industry_hints(master, all_industry_hints)
+                official_match = self._find_official_match(master, official)
+                coverage = self.coverage_assessor.assess(
+                    medium_status=medium_status,
+                    source_stats=official_source_stats,
+                    has_external_hint=bool(hint_matches),
+                )
+
+                change_flags: list[str] = []
+                externer_hinweis = self._compose_external_hint(hint_matches)
+                pruefen = "Nein"
+                im_web = "Nein"
+                neuer_stand = ""
+                kommentar = coverage.comment
+
+                if official_match:
+                    im_web = "Ja"
+                    change_flags.append("Journalist bestaetigt")
+                    for field, label in (("email", "E-Mail geaendert"), ("telefon", "Telefon geaendert"), ("rolle", "Ressort geaendert")):
+                        old = (master.get(field if field != "rolle" else "ressort", "") or "").strip().lower()
+                        new = (official_match.get(field, "") or "").strip().lower()
+                        if old and new and old != new:
+                            change_flags.append(label)
+                    neuer_stand = f"{official_match.get('email', '')} | {official_match.get('telefon', '')} | {official_match.get('rolle', '')}"
+                    kommentar = "offizielle Quelle bestaetigt Abweichung" if len(change_flags) > 1 else "offizielle Quelle bestaetigt Kontakt"
                 else:
+                    if hint_matches and coverage.level != "hoch":
+                        change_flags.append("Wahrscheinlicher Medienwechsel")
+                        pruefen = "Ja"
+                        kommentar = "Branchenquelle meldet Wechsel"
+                    elif coverage.level == "hoch":
+                        change_flags.append("Journalist bei Medium nicht mehr gefunden")
+                        pruefen = "Ja"
+                        kommentar = "offizielle Quelle bestaetigt Abweichung"
+                    elif has_expected_contact_source and coverage.level == "mittel":
+                        change_flags.append("Auf offizieller Quelle nicht belegt")
+                        pruefen = "Ja"
+                        kommentar = "Kontakt auf belastbarer Quelle nicht sichtbar"
+                    else:
+                        change_flags.append("Weitere Quelle pruefen")
+                        pruefen = "Ja"
+                        kommentar = "keine Team-/Autorenseite vorhanden"
+
+                if hint_matches and official_match:
                     change_flags.append("Weitere Quelle pruefen")
                     pruefen = "Ja"
+                    kommentar = "offizielle Quelle bestaetigt Kontakt, externer Hinweis abweichend"
 
-            if hint_matches and official_match:
-                change_flags.append("Weitere Quelle pruefen")
-                pruefen = "Ja"
-                kommentar = "offizielle Quelle bestaetigt Kontakt, externer Hinweis abweichend"
-
-            source = "offizielle Mediumsquelle" if not hint_matches else ", ".join(sorted({h.get("source", "") for h in hint_matches if h.get("source")}))
-            empfehlung = self._recommended_action(change_flags)
-
-            rows.append(
-                {
-                    "medium": medium,
-                    "journalist": self._name(master),
-                    "im_master": "Ja",
-                    "im_web_gefunden": im_web,
-                    "externer_hinweis": externer_hinweis,
-                    "was_ist_anders": "; ".join(dict.fromkeys(change_flags)),
-                    "alter_stand": f"{master.get('email', '')} | {master.get('telefon', '')} | {master.get('ressort', '')}",
-                    "neuer_stand": neuer_stand,
-                    "quelle": source,
-                    "empfohlene_aktion": empfehlung,
-                    "pruefen": pruefen,
-                    "kommentar": kommentar,
-                }
-            )
+                source_parts = ["offizielle Mediumsquelle"]
+                if hint_matches:
+                    source_parts.extend(sorted({h.get("source", "") for h in hint_matches if h.get("source")}))
+                source = ", ".join(dict.fromkeys(source_parts))
+                empfehlung = self._recommended_action(change_flags)
+                rows.append(
+                    {
+                        "medium": medium,
+                        "journalist": self._name(master),
+                        "im_master": "Ja",
+                        "im_web_gefunden": im_web,
+                        "externer_hinweis": externer_hinweis,
+                        "was_ist_anders": "; ".join(dict.fromkeys(change_flags)),
+                        "alter_stand": f"{master.get('email', '')} | {master.get('telefon', '')} | {master.get('ressort', '')}",
+                        "neuer_stand": neuer_stand,
+                        "quelle": source,
+                        "empfohlene_aktion": empfehlung,
+                        "pruefen": pruefen,
+                        "kommentar": kommentar,
+                    }
+                )
         return rows, not_scanned_rows
 
     # Backward-compatible method used by older flow/tests.
