@@ -311,6 +311,133 @@ class DeltaViewTests(unittest.TestCase):
         delta = self.diff_engine.build_delta_rows(rows)
         self.assertIn("Journalist bestaetigt", delta[0]["Was_ist_anders"])
 
+    def test_title_and_abbreviation_variant_results_in_probable_match(self):
+        class VariantMatcher(StubMatcher):
+            def load_master_contacts(self):
+                return [
+                    {
+                        "medium": "Handelsblatt",
+                        "vorname": "Dr. Maximilian",
+                        "nachname": "Schröder",
+                        "email": "maximilian.schroeder@handelsblatt.com",
+                        "telefon": "+49 30 999",
+                        "ressort": "Politik",
+                    }
+                ]
+
+        matcher = VariantMatcher()
+        rows, _ = matcher.build_delta_inputs(
+            {
+                "Handelsblatt": {
+                    "official_contacts": [{"vorname": "Max", "nachname": "Schroeder", "email": "m.schroeder@handelsblatt.com", "telefon": "", "rolle": "Politik"}],
+                    "official_documents": [],
+                    "industry_hints": [],
+                    "medium_status": "ok",
+                    "official_source_stats": {"total_sources": 3, "reachable_sources": 3, "has_impressum": True, "has_editorial_pages": True, "contact_expected_sources": 2},
+                }
+            },
+            scan_scope_media={"Handelsblatt"},
+        )
+        delta = self.diff_engine.build_delta_rows(rows)
+        self.assertTrue(
+            "Wahrscheinlicher Treffer" in delta[0]["Was_ist_anders"]
+            or "Journalist bestaetigt" in delta[0]["Was_ist_anders"]
+        )
+
+    def test_function_address_is_labeled_in_comment(self):
+        class FunctionMatcher(StubMatcher):
+            def load_master_contacts(self):
+                return [
+                    {
+                        "medium": "Handelsblatt",
+                        "vorname": "Redaktion",
+                        "nachname": "Finanzen",
+                        "email": "redaktion@handelsblatt.com",
+                        "telefon": "",
+                        "ressort": "Desk",
+                    }
+                ]
+
+        matcher = FunctionMatcher()
+        rows, _ = matcher.build_delta_inputs(
+            {
+                "Handelsblatt": {
+                    "official_contacts": [{"vorname": "Redaktion", "nachname": "Finanzen", "email": "redaktion@handelsblatt.com", "telefon": "", "rolle": "Desk"}],
+                    "official_documents": [{"url": "https://handelsblatt.com/redaktion", "page_type": "team", "text": "redaktion@handelsblatt.com"}],
+                    "industry_hints": [],
+                    "medium_status": "ok",
+                }
+            },
+            scan_scope_media={"Handelsblatt"},
+        )
+        delta = self.diff_engine.build_delta_rows(rows)
+        self.assertIn("Funktionsadresse", delta[0]["Kommentar"])
+
+    def test_multiple_similar_names_prefers_email_pattern(self):
+        class SimilarMatcher(StubMatcher):
+            def load_master_contacts(self):
+                return [
+                    {
+                        "medium": "Handelsblatt",
+                        "vorname": "Anna",
+                        "nachname": "Muster",
+                        "email": "anna.muster@handelsblatt.com",
+                        "telefon": "",
+                        "ressort": "Finanzen",
+                    }
+                ]
+
+        matcher = SimilarMatcher()
+        rows, _ = matcher.build_delta_inputs(
+            {
+                "Handelsblatt": {
+                    "official_contacts": [
+                        {"vorname": "Anne", "nachname": "Muster", "email": "anne.muster@handelsblatt.com", "telefon": "", "rolle": "Finanzen"},
+                        {"vorname": "Anna", "nachname": "Muster", "email": "a.muster@handelsblatt.com", "telefon": "", "rolle": "Finanzen"},
+                    ],
+                    "official_documents": [],
+                    "industry_hints": [],
+                    "medium_status": "ok",
+                    "official_source_stats": {"total_sources": 3, "reachable_sources": 3, "has_impressum": True, "has_editorial_pages": True, "contact_expected_sources": 2},
+                }
+            },
+            scan_scope_media={"Handelsblatt"},
+        )
+        details = matcher.get_matching_detail_rows()
+        self.assertTrue(details)
+        self.assertEqual(details[0]["Match_Art"], "email_pattern")
+
+    def test_benchmark_media_prefers_confirmed_and_probable_over_not_found(self):
+        class BenchmarkMatcher(StubMatcher):
+            def load_master_contacts(self):
+                return [
+                    {"medium": "Handelsblatt", "vorname": "Anna", "nachname": "Muster", "email": "anna.muster@handelsblatt.com", "telefon": "", "ressort": "Finanzen"},
+                    {"medium": "Handelsblatt", "vorname": "Bernd", "nachname": "Beispiel", "email": "bernd.beispiel@handelsblatt.com", "telefon": "", "ressort": "Politik"},
+                    {"medium": "Handelsblatt", "vorname": "Clara", "nachname": "Demo", "email": "clara.demo@handelsblatt.com", "telefon": "", "ressort": "Wirtschaft"},
+                ]
+
+        matcher = BenchmarkMatcher()
+        rows, _ = matcher.build_delta_inputs(
+            {
+                "Handelsblatt": {
+                    "official_contacts": [
+                        {"vorname": "Anna", "nachname": "Muster", "email": "anna.muster@handelsblatt.com", "telefon": "", "rolle": "Finanzen"},
+                        {"vorname": "B.", "nachname": "Beispiel", "email": "bernd.beispiel@handelsblatt.com", "telefon": "", "rolle": "Politik"},
+                        {"vorname": "Cl", "nachname": "Demo", "email": "cl.demo@handelsblatt.com", "telefon": "", "rolle": "Wirtschaft"},
+                    ],
+                    "official_documents": [],
+                    "industry_hints": [],
+                    "medium_status": "ok",
+                    "official_source_stats": {"total_sources": 4, "reachable_sources": 4, "has_impressum": True, "has_editorial_pages": True, "contact_expected_sources": 2},
+                }
+            },
+            scan_scope_media={"Handelsblatt"},
+        )
+        delta = self.diff_engine.build_delta_rows(rows)
+        labels = " ".join(row["Was_ist_anders"] for row in delta)
+        self.assertNotIn("Journalist bei Medium nicht mehr gefunden", labels)
+        self.assertTrue(any("Journalist bestaetigt" in row["Was_ist_anders"] or "Wahrscheinlicher Treffer" in row["Was_ist_anders"] for row in delta))
+
 
 if __name__ == "__main__":
     unittest.main()

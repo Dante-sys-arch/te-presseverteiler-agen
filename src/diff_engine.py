@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 
 ALLOWED_CHANGE_TYPES = {
     "Journalist bestaetigt",
+    "Wahrscheinlicher Treffer",
+    "Manuell pruefen",
     "Journalist bei Medium nicht mehr gefunden",
     "Auf offiziellen Seiten nicht bestaetigt",
     "Wahrscheinlicher Medienwechsel",
