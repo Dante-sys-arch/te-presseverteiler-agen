@@ -37,6 +37,7 @@ class Reporter:
         technical_rows: list[dict] | None = None,
         unscanned_rows: list[dict] | None = None,
         medium_recherche_detail_rows: list[dict] | None = None,
+        matching_detail_rows: list[dict] | None = None,
     ) -> Path:
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -89,5 +90,17 @@ class Reporter:
             ]
             detail_df = pd.DataFrame(medium_recherche_detail_rows or []).reindex(columns=detail_columns)
             detail_df.to_excel(writer, sheet_name="Medium_Recherche_Detail", index=False)
+
+            matching_detail_columns = [
+                "Medium",
+                "Master_Journalist",
+                "Web_Treffer",
+                "Match_Art",
+                "Match_Staerke",
+                "Grund",
+                "Entscheidung",
+            ]
+            matching_detail_df = pd.DataFrame(matching_detail_rows or []).reindex(columns=matching_detail_columns)
+            matching_detail_df.to_excel(writer, sheet_name="Matching_Detail", index=False)
 
         return report_path

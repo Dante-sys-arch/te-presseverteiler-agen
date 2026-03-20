@@ -45,6 +45,7 @@ def run_pipeline(base_dir: Path) -> Path:
         for row in payload.get("source_diagnostics", [])
     ]
     matched_rows, not_scanned_master_rows = matcher.build_delta_inputs(structured, scan_scope_media=scan_scope_media)
+    matching_detail_rows = matcher.get_matching_detail_rows()
     delta_rows = diff_engine.build_delta_rows(matched_rows)
     unscanned_rows = diff_engine.build_unscanned_rows(not_scanned_master_rows)
 
@@ -54,6 +55,7 @@ def run_pipeline(base_dir: Path) -> Path:
         crawl_info=raw,
         unscanned_rows=unscanned_rows,
         medium_recherche_detail_rows=medium_recherche_detail_rows,
+        matching_detail_rows=matching_detail_rows,
     )
     return report_path
 

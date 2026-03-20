@@ -28,6 +28,43 @@ class Matcher:
         self.mapping_file = mapping_file
         self.master_file = master_file
         self.coverage_assessor = SourceCoverageAssessor()
+        self._matching_detail_rows: list[dict] = []
+        self._benchmark_media = {
+            self._normalize_name(name)
+            for name in (
+                "Boersen-Zeitung",
+                "Börsen-Zeitung",
+                "Handelsblatt",
+                "WiWo",
+                "Wirtschaftswoche",
+                "The Market",
+                "NZZ",
+                "AssCompact",
+            )
+        }
+        self._title_tokens = {"dr", "prof", "dipl", "mag", "mba", "msc", "llm"}
+        self._nickname_map = {
+            "alex": {"alexander", "alexandra"},
+            "andi": {"andreas"},
+            "franz": {"franziska"},
+            "max": {"maximilian"},
+            "susi": {"susanne"},
+            "tom": {"thomas"},
+            "tobi": {"tobias"},
+        }
+        self._function_tokens = {
+            "redaktion",
+            "service",
+            "kontakt",
+            "presse",
+            "desk",
+            "ressort",
+            "postfach",
+            "leserservice",
+            "kundenservice",
+            "team",
+            "info",
+        }
 
     def _compose_external_hint(self, hint_matches: list[dict]) -> str:
         if not hint_matches:
@@ -39,9 +76,9 @@ class Matcher:
     def _normalize_name(self, value: str) -> str:
         txt = unicodedata.normalize("NFKD", str(value or "").strip().lower())
         txt = "".join(ch for ch in txt if not unicodedata.combining(ch))
-        txt = re.sub(r"\b(dr|prof|dipl|mag)\.?\b", "", txt)
+        txt = re.sub(r"\b(dr|prof|dipl|mag|mba|msc|llm)\.?\b", "", txt)
         txt = re.sub(r"[^a-z0-9\s-]", " ", txt)
-        txt = txt.replace("ae", "a").replace("oe", "o").replace("ue", "u")
+        txt = txt.replace("ae", "a").replace("oe", "o").replace("ue", "u").replace("ss", "s")
         return re.sub(r"\s+", " ", txt).strip()
 
     def _name_variants(self, full_name: str) -> set[str]:
@@ -58,6 +95,8 @@ class Matcher:
             f"{first[0]} {last}",
             f"{first[0]}. {last}",
             f"{last}, {first}",
+            f"{last} {first}",
+            f"{last} {first[0]}",
         }
         replace_map = {"ae": "ä", "oe": "ö", "ue": "ü", "ss": "ß"}
         for candidate in list(variants):
@@ -66,6 +105,89 @@ class Matcher:
                 remapped = remapped.replace(src, dest)
             variants.add(self._normalize_name(remapped))
         return {v for v in variants if v}
+
+    def _split_name(self, full_name: str) -> tuple[str, str]:
+        normalized = self._normalize_name(full_name)
+        parts = [p for p in re.split(r"[\s\-]+", normalized) if p and p not in self._title_tokens]
+        if not parts:
+            return "", ""
+        return parts[0], parts[-1] if len(parts) > 1 else ""
+
+    def _is_initial_match(self, left: str, right: str) -> bool:
+        return bool(left and right and len(left) == 1 and right.startswith(left))
+
+    def _is_nickname_match(self, left: str, right: str) -> bool:
+        if not left or not right:
+            return False
+        if left == right:
+            return True
+        if self._is_initial_match(left, right) or self._is_initial_match(right, left):
+            return True
+        return right in self._nickname_map.get(left, set()) or left in self._nickname_map.get(right, set())
+
+    def _is_function_address(self, row: dict) -> bool:
+        name = self._normalize_name(self._name(row))
+        local = str(row.get("email", "")).lower().split("@", 1)[0]
+        role = self._normalize_name(str(row.get("rolle", row.get("ressort", ""))))
+        haystack = f"{name} {local} {role}"
+        return any(token in haystack for token in self._function_tokens)
+
+    def _email_pattern_score(self, master_email: str, candidate_email: str) -> int:
+        if not master_email or not candidate_email:
+            return 0
+        m_local = master_email.split("@", 1)[0].lower()
+        c_local = candidate_email.split("@", 1)[0].lower()
+        if m_local == c_local:
+            return 30
+        if m_local.replace(".", "") == c_local.replace(".", ""):
+            return 22
+        if m_local.split(".")[-1] == c_local.split(".")[-1]:
+            return 12
+        return 0
+
+    def _score_official_candidate(self, master: dict, candidate: dict, medium: str) -> tuple[int, str, list[str]]:
+        master_name = self._name(master)
+        candidate_name = self._name(candidate)
+        m_first, m_last = self._split_name(master_name)
+        c_first, c_last = self._split_name(candidate_name)
+        reason_parts: list[str] = []
+        score = 0
+        match_art = "name_fuzzy"
+
+        if m_last and c_last and m_last == c_last:
+            score += 42
+            reason_parts.append("Nachname identisch")
+        elif m_last and c_last and fuzz.ratio(m_last, c_last) >= 88:
+            score += 28
+            reason_parts.append("Nachname sehr aehnlich")
+
+        if self._is_nickname_match(m_first, c_first):
+            score += 25
+            reason_parts.append("Vorname kompatibel")
+        elif m_first and c_first and fuzz.ratio(m_first, c_first) >= 82:
+            score += 15
+            reason_parts.append("Vorname aehnlich")
+
+        full_ratio = fuzz.ratio(self._normalize_name(master_name), self._normalize_name(candidate_name))
+        score += int(full_ratio // 4)
+
+        email_bonus = self._email_pattern_score(master.get("email", ""), candidate.get("email", ""))
+        if email_bonus:
+            score += email_bonus
+            match_art = "email_pattern"
+            reason_parts.append("E-Mail-Muster passt")
+
+        master_ressort = self._normalize_name(master.get("ressort", ""))
+        candidate_ressort = self._normalize_name(candidate.get("rolle", ""))
+        if master_ressort and candidate_ressort and (master_ressort in candidate_ressort or candidate_ressort in master_ressort):
+            score += 10
+            reason_parts.append("Ressort passend")
+
+        if self._normalize_name(medium) in self._benchmark_media and full_ratio >= 70:
+            score += 8
+            reason_parts.append("Benchmark-Medium-Bonus")
+
+        return min(score, 100), match_art, reason_parts
 
     def _official_evidence(self, master_name: str, documents: list[dict]) -> dict[str, list[str]]:
         variants = self._name_variants(master_name)
@@ -97,6 +219,10 @@ class Matcher:
             return "Mediumstatus manuell pruefen"
         if "Journalist bei Medium nicht mehr gefunden" in change_flags:
             return "deaktivieren oder manuell pruefen"
+        if "Manuell pruefen" in change_flags:
+            return "manuell pruefen"
+        if "Wahrscheinlicher Treffer" in change_flags:
+            return "manuell pruefen"
         if "Auf offiziellen Seiten nicht bestaetigt" in change_flags:
             return "weitere Quelle pruefen"
         if "Wahrscheinlicher Medienwechsel" in change_flags:
@@ -148,22 +274,24 @@ class Matcher:
     def _name(self, row: dict) -> str:
         return f"{row.get('vorname', '')} {row.get('nachname', '')}".strip()
 
-    def _find_official_match(self, master: dict, official_contacts: list[dict]) -> dict | None:
+    def _find_official_match(self, master: dict, official_contacts: list[dict], medium: str) -> tuple[dict | None, int, str, str]:
         email = master.get("email", "").lower()
-        name = self._name(master).lower()
         for record in official_contacts:
             if record.get("email", "").lower() == email and email:
-                return record
+                return record, 100, "email_exact", "E-Mail exakt gleich"
 
-        best_score = 0
+        best_score = -1
         best: dict | None = None
+        best_match_art = ""
+        best_reason = ""
         for record in official_contacts:
-            candidate = self._name(record).lower()
-            score = fuzz.ratio(name, candidate)
+            score, match_art, reason_parts = self._score_official_candidate(master, record, medium)
             if score > best_score:
                 best_score = score
                 best = record
-        return best if best_score >= 92 else None
+                best_match_art = match_art
+                best_reason = ", ".join(reason_parts)
+        return best, max(best_score, 0), best_match_art, (best_reason or "unspezifischer Namensabgleich")
 
     def _find_industry_hints(self, master: dict, industry_hints: list[dict]) -> list[dict]:
         name = self._name(master).lower()
@@ -190,6 +318,7 @@ class Matcher:
 
         scoped_media = scan_scope_media
         rows: list[dict] = []
+        self._matching_detail_rows = []
         not_scanned_rows: list[dict] = []
         for medium, medium_master_contacts in master_by_medium.items():
             if scoped_media is not None and medium not in scoped_media:
@@ -290,9 +419,11 @@ class Matcher:
 
             for master in medium_master_contacts:
                 hint_matches = self._find_industry_hints(master, all_industry_hints)
-                official_match = self._find_official_match(master, official)
+                official_match, match_score, match_art, match_reason = self._find_official_match(master, official, medium)
                 official_evidence = self._official_evidence(self._name(master), official_documents)
                 reliable_evidence = self._has_reliable_official_evidence(official_evidence, official_match)
+                is_function_master = self._is_function_address(master)
+                is_function_match = self._is_function_address(official_match or {})
                 coverage = self.coverage_assessor.assess(
                     medium_status=medium_status,
                     source_stats=official_source_stats,
@@ -307,7 +438,7 @@ class Matcher:
                 neuer_stand = ""
                 kommentar = coverage.comment
 
-                if reliable_evidence:
+                if reliable_evidence or match_score >= 85:
                     im_web = "Ja"
                     change_flags.append("Journalist bestaetigt")
                     for field, label in (("email", "E-Mail geaendert"), ("telefon", "Telefon geaendert"), ("rolle", "Ressort geaendert")):
@@ -326,7 +457,18 @@ class Matcher:
                     else:
                         kommentar = "offizielle Quelle bestaetigt"
                 else:
-                    if hint_matches and coverage.level != "hoch":
+                    if match_score >= 65:
+                        change_flags.append("Wahrscheinlicher Treffer")
+                        pruefen = "Ja"
+                        kommentar = f"plausibler Match ({match_score}) - {match_reason}"
+                        im_web = "Ja"
+                        if official_match:
+                            neuer_stand = f"{official_match.get('email', '')} | {official_match.get('telefon', '')} | {official_match.get('rolle', '')}"
+                    elif match_score >= 50:
+                        change_flags.append("Manuell pruefen")
+                        pruefen = "Ja"
+                        kommentar = f"teilweise passend ({match_score}) - {match_reason}"
+                    elif hint_matches and coverage.level != "hoch":
                         change_flags.append("Wahrscheinlicher Medienwechsel")
                         pruefen = "Ja"
                         kommentar = "Branchenquelle meldet Wechsel"
@@ -360,6 +502,21 @@ class Matcher:
                     pruefen = "Ja"
                     kommentar = "offizielle Teamseite bestaetigt, Branchenhinweis abweichend"
 
+                if is_function_master or is_function_match:
+                    kommentar = f"{kommentar}; Funktionsadresse getrennt bewertet"
+
+                self._matching_detail_rows.append(
+                    {
+                        "Medium": medium,
+                        "Master_Journalist": self._name(master),
+                        "Web_Treffer": self._name(official_match or {}),
+                        "Match_Art": match_art or ("evidence_only" if reliable_evidence else "kein_match"),
+                        "Match_Staerke": match_score,
+                        "Grund": match_reason,
+                        "Entscheidung": "; ".join(dict.fromkeys(change_flags)),
+                    }
+                )
+
                 source_parts = ["official_medium"]
                 if hint_matches or industry_mentions:
                     source_parts.append("industry_source")
@@ -382,6 +539,9 @@ class Matcher:
                     }
                 )
         return rows, not_scanned_rows
+
+    def get_matching_detail_rows(self) -> list[dict]:
+        return list(self._matching_detail_rows)
 
     def match(self, parsed_data: dict[str, list[dict]]) -> dict[str, list[dict]]:
         return parsed_data
