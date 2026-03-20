@@ -7,14 +7,14 @@ import html
 import re
 from typing import Any
 
-from validator import Validator
 from validator import SourceCoverageAssessor
+from validator import Validator
 
 
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 NAME_RE = re.compile(r"\b([A-ZÄÖÜ][a-zäöüß'\-]{1,})\s+([A-ZÄÖÜ][a-zäöüß'\-]{1,})\b")
 PHONE_RE = re.compile(r"(?:\+|\(?\d)[\d\s\-/().]{5,}\d")
-ROLE_HINT_RE = re.compile(r"(Redaktion|Chefredaktion|Ressort|Wirtschaft|Politik|Finanzen|Editor)", re.IGNORECASE)
+ROLE_HINT_RE = re.compile(r"(Redaktion|Chefredaktion|Ressort|Wirtschaft|Politik|Finanzen|Editor|Team)", re.IGNORECASE)
 CHANGE_HINT_RE = re.compile(r"(wechselt|neu bei|verl[äa]sst|geht zu|heuert an|beruft|verl[äa]sst das medium)", re.IGNORECASE)
 INACTIVE_HINT_RE = re.compile(r"(eingestellt|nicht mehr aktiv|insolvenz|geschlossen)", re.IGNORECASE)
 
@@ -54,8 +54,8 @@ class Parser:
             return "autorenseite"
         if any(token in target for token in ("ressort", "rubrik", "section")):
             return "ressortseite"
-        if any(token in target for token in ("redaktion", "team", "autor", "ressort")):
-            return "editorial"
+        if any(token in target for token in ("redaktion", "team", "editorial")):
+            return "team"
         if "kontakt" in target:
             return "kontakt"
         return "other"
@@ -64,15 +64,14 @@ class Parser:
         cleaned = str(text or "")
         cleaned = cleaned.replace("\\u003e", ">").replace("\\u003c", "<")
         cleaned = cleaned.replace("\\/", "/")
-        cleaned = html.unescape(cleaned)
-        return cleaned
+        return html.unescape(cleaned)
 
-    def _extract_contacts(self, text: str) -> list[ParsedContact]:
+    def _extract_contacts(self, text: str, page_type: str = "other") -> list[ParsedContact]:
+        contacts: list[ParsedContact] = []
         emails = [self.validator.clean_email(e) for e in EMAIL_RE.findall(text)]
         phones = [self.validator.normalize_phone(p) for p in PHONE_RE.findall(text)]
         phones = [p for p in phones if p]
 
-        contacts: list[ParsedContact] = []
         for email in emails:
             local = email.split("@", 1)[0]
             parts = [part for part in re.split(r"[._-]", local) if part]
@@ -87,17 +86,36 @@ class Parser:
                 ParsedContact(
                     vorname=first,
                     nachname=last,
-                    rolle=role_match.group(1) if role_match else "",
+                    rolle=role_match.group(1) if role_match else page_type,
                     email=email,
                     telefon=phones[0] if phones else "",
                 )
             )
 
-        # Deduplicate by email
-        dedup: dict[str, ParsedContact] = {}
+        # Additional extraction for team/author/profile pages without visible email.
+        if page_type in {"team", "autorenseite", "ressortseite", "redaktion"}:
+            for first, last in NAME_RE.findall(text):
+                if len(first) <= 1 or len(last) <= 1:
+                    continue
+                contacts.append(
+                    ParsedContact(
+                        vorname=first,
+                        nachname=last,
+                        rolle=page_type,
+                        email="",
+                        telefon="",
+                    )
+                )
+
+        dedup: dict[tuple[str, str, str], ParsedContact] = {}
         for contact in contacts:
-            if contact.email and contact.email not in dedup:
-                dedup[contact.email] = contact
+            key = (
+                contact.email.lower(),
+                contact.vorname.lower(),
+                contact.nachname.lower(),
+            )
+            if key not in dedup:
+                dedup[key] = contact
         return list(dedup.values())
 
     def _extract_industry_hints(self, text: str, source: str) -> list[IndustryHint]:
@@ -127,7 +145,6 @@ class Parser:
         return hints
 
     def parse_structured(self, raw_snapshots: dict[str, list[Any]]) -> dict[str, dict[str, Any]]:
-        """Parse crawl output into structured records per source type."""
         structured: dict[str, dict[str, Any]] = {}
         for key, snapshots in raw_snapshots.items():
             official_contacts: list[ParsedContact] = []
@@ -160,7 +177,7 @@ class Parser:
                     official_source_categories.append(expectation.source_category)
                     if expectation.contact_expected:
                         contact_expected_sources += 1
-                    official_contacts.extend(self._extract_contacts(text))
+                    official_contacts.extend(self._extract_contacts(text, page_type=page_type))
                     if error or (status_code is not None and status_code >= 500):
                         technical_failures += 1
                     else:
@@ -202,7 +219,7 @@ class Parser:
                     "total_sources": official_total_sources,
                     "reachable_sources": official_reachable_sources,
                     "has_impressum": "impressum" in official_page_types,
-                    "has_editorial_pages": "editorial" in official_page_types,
+                    "has_editorial_pages": bool(official_page_types & {"team", "autorenseite", "ressortseite"}),
                     "source_categories": official_source_categories,
                     "contact_expected_sources": contact_expected_sources,
                 },
@@ -210,7 +227,6 @@ class Parser:
         return structured
 
     def parse(self, raw_snapshots: dict[str, Any]) -> dict[str, list[ParsedContact]]:
-        """Backward compatible contact-only parse for scoring layer."""
         if raw_snapshots and isinstance(next(iter(raw_snapshots.values())), list):
             structured = self.parse_structured(raw_snapshots)
             return {

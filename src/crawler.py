@@ -1,4 +1,4 @@
-"""Crawler module for fetching official medium, journalist-search and secondary sources."""
+"""Crawler module for multi-stage medium + journalist research."""
 
 from __future__ import annotations
 
@@ -8,15 +8,15 @@ from pathlib import Path
 import csv
 import re
 import time
-from urllib.parse import urlparse
+from urllib.parse import quote_plus, urlparse
 from collections import defaultdict
 
+import pandas as pd
 import requests
 import yaml
-import pandas as pd
 
 
-USER_AGENT = "te-presseverteiler-agent/1.1 (+respectful-crawler)"
+USER_AGENT = "te-presseverteiler-agent/2.0 (+respectful-crawler)"
 OFFICIAL_PAGE_FIELDS = (
     "impressum_url",
     "redaktion_url",
@@ -29,8 +29,6 @@ OFFICIAL_PAGE_FIELDS = (
 
 @dataclass(frozen=True)
 class MediaTarget:
-    """Represents one medium and all official target pages to scan."""
-
     medium: str
     priority: str
     official_urls: list[str]
@@ -38,8 +36,6 @@ class MediaTarget:
 
 @dataclass(frozen=True)
 class CrawlResult:
-    """Normalized crawl output for one target URL."""
-
     medium: str
     source_name: str
     source_type: str
@@ -93,7 +89,6 @@ class Crawler:
         return list(dict.fromkeys(urls))
 
     def load_targets(self) -> list[MediaTarget]:
-        """Load medium definitions from CSV configuration."""
         if not self.targets_file.exists():
             return []
 
@@ -147,26 +142,44 @@ class Crawler:
     def _normalize_query(self, name: str) -> str:
         return re.sub(r"\s+", " ", name).strip()
 
+    def _slug_from_name(self, full_name: str) -> str:
+        lowered = re.sub(r"[^a-zA-Z0-9\s-]", "", full_name.lower())
+        return re.sub(r"\s+", "-", lowered).strip("-")
+
+    def _profile(self, medium: str, profiles: dict) -> dict:
+        defaults = profiles.get("defaults", {}) if isinstance(profiles, dict) else {}
+        medium_profile = profiles.get("mediums", {}).get(medium, {}) if isinstance(profiles.get("mediums", {}), dict) else {}
+        merged = dict(defaults)
+        merged.update(medium_profile)
+        return merged
+
     def _build_official_urls(self, medium: str, base_urls: list[str], profiles: dict) -> list[tuple[str, str]]:
-        profile = profiles.get("mediums", {}).get(medium, {})
-        defaults = profiles.get("defaults", {})
-        primary_domain = (profile.get("primary_domain") or "").strip()
-        official_paths = profile.get("official_paths") or defaults.get("official_paths") or []
+        profile = self._profile(medium, profiles)
+        primary_domain = str(profile.get("primary_domain", "")).strip()
+        known_paths = profile.get("known_paths") or {}
+        preferred_contact_pages = profile.get("preferred_contact_pages") or []
+
         urls: list[tuple[str, str]] = []
         for url in base_urls:
             urls.append((self._official_source_name(url), url))
-        if primary_domain and official_paths:
-            for source_name, path in official_paths.items():
-                path_list = path if isinstance(path, list) else [path]
-                for entry in path_list:
-                    cleaned = str(entry or "").strip()
-                    if not cleaned:
+
+        if primary_domain and isinstance(known_paths, dict):
+            for source_name, path_values in known_paths.items():
+                values = path_values if isinstance(path_values, list) else [path_values]
+                for path in values:
+                    path = str(path or "").strip()
+                    if not path:
                         continue
-                    if cleaned.startswith("http"):
-                        url = cleaned
-                    else:
-                        url = f"https://{primary_domain.rstrip('/')}/{cleaned.lstrip('/')}"
-                    urls.append((source_name, url))
+                    final_url = path if path.startswith("http") else f"https://{primary_domain.rstrip('/')}/{path.lstrip('/')}"
+                    urls.append((str(source_name), final_url))
+
+        if primary_domain:
+            for path in preferred_contact_pages if isinstance(preferred_contact_pages, list) else []:
+                clean = str(path or "").strip()
+                if clean:
+                    final_url = clean if clean.startswith("http") else f"https://{primary_domain.rstrip('/')}/{clean.lstrip('/')}"
+                    urls.append(("kontakt", final_url))
+
         dedup: list[tuple[str, str]] = []
         seen = set()
         for source_name, url in urls:
@@ -175,25 +188,46 @@ class Crawler:
                 dedup.append((source_name, url))
         return dedup
 
-    def _build_internal_search_urls(self, medium: str, profiles: dict, names: list[str]) -> list[tuple[str, str]]:
-        profile = profiles.get("mediums", {}).get(medium, {})
-        defaults = profiles.get("defaults", {})
-        primary_domain = (profile.get("primary_domain") or "").strip()
-        patterns = profile.get("search_patterns") or defaults.get("search_patterns") or []
+    def _build_domain_research_urls(self, medium: str, profiles: dict, names: list[str]) -> list[tuple[str, str]]:
+        profile = self._profile(medium, profiles)
+        primary_domain = str(profile.get("primary_domain", "")).strip()
+        if not primary_domain:
+            return []
+
         urls: list[tuple[str, str]] = []
-        for pattern in patterns:
-            tpl = str(pattern or "").strip()
-            if "{query}" not in tpl:
-                continue
-            for name in names:
-                query = self._normalize_query(name)
-                url = tpl.replace("{query}", query.replace(" ", "+"))
-                if "{domain}" in url:
-                    if not primary_domain:
+        template_map = {
+            "team": profile.get("team_patterns", []) or [],
+            "autorenseite": profile.get("author_patterns", []) or [],
+            "interne_suche": profile.get("search_patterns", []) or [],
+        }
+
+        for source_name, templates in template_map.items():
+            for template in templates if isinstance(templates, list) else []:
+                tpl = str(template or "").strip()
+                if not tpl:
+                    continue
+                for name in names:
+                    query = self._normalize_query(name)
+                    slug = self._slug_from_name(query)
+                    url = tpl
+                    if "{domain}" in url:
+                        url = url.replace("{domain}", primary_domain)
+                    if url.startswith("/"):
+                        url = f"https://{primary_domain.rstrip('/')}/{url.lstrip('/')}"
+                    url = url.replace("{query}", quote_plus(query))
+                    url = url.replace("{name}", quote_plus(query))
+                    url = url.replace("{slug}", slug)
+                    if "{" in url:
                         continue
-                    url = url.replace("{domain}", primary_domain)
-                urls.append(("interne_suche", url))
-        return urls
+                    urls.append((source_name, url))
+
+        dedup: list[tuple[str, str]] = []
+        seen = set()
+        for source_name, url in urls:
+            if url not in seen:
+                seen.add(url)
+                dedup.append((source_name, url))
+        return dedup
 
     def _safe_slug(self, value: str) -> str:
         return re.sub(r"[^a-zA-Z0-9_-]+", "_", value.strip()).strip("_") or "unknown"
@@ -207,11 +241,7 @@ class Crawler:
         return path
 
     def _domain_allowed(self, source_type: str, url: str, rules: dict) -> bool:
-        allowed = (
-            rules.get("levels", {})
-            .get(source_type, {})
-            .get("allowed_domains", [])
-        )
+        allowed = rules.get("levels", {}).get(source_type, {}).get("allowed_domains", [])
         if not allowed:
             return True
         host = (urlparse(url).hostname or "").lower()
@@ -255,10 +285,11 @@ class Crawler:
             return "autorenseite"
         if "ressort" in lower:
             return "ressortseite"
+        if "suche" in lower or "search" in lower:
+            return "interne_suche"
         return "official"
 
     def crawl(self) -> dict[str, list[CrawlResult]]:
-        """Fetch official medium pages and curated industry sources."""
         rules = self._load_yaml(self.source_rules_file)
         results: dict[str, list[CrawlResult]] = {}
         session = requests.Session()
@@ -268,13 +299,10 @@ class Crawler:
 
         targets = self.load_targets()
         for target in targets:
+            candidate_names = contacts_by_medium.get(target.medium, [])[:5]
             official_urls = self._build_official_urls(target.medium, target.official_urls, profiles)
-            search_urls = self._build_internal_search_urls(
-                target.medium,
-                profiles,
-                contacts_by_medium.get(target.medium, [])[:5],
-            )
-            medium_urls = official_urls + search_urls
+            research_urls = self._build_domain_research_urls(target.medium, profiles, candidate_names)
+            medium_urls = official_urls + research_urls
             for idx, (source_name, url) in enumerate(medium_urls):
                 if not self._domain_allowed("official_medium", url, rules):
                     continue

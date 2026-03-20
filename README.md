@@ -10,9 +10,9 @@ Keine automatische Änderung der Master-Datei ohne explizite Freigabe.
 Vor jedem Update wird ein Backup erstellt.
 
 ## Intelligente Recherche (neu)
-- Pro Medium werden mehrere offizielle Quellentypen geprüft (Impressum, Redaktion, Team, Kontakt, Autoren-, Ressort- und interne Suchseiten) via `config/medium_profiles.yaml`.
-- Pro Journalist werden Namensvarianten (Umlaute, Bindestriche, Initialen) auf offiziellen Seiten und Branchenquellen geprüft.
-- Branchenquellen werden in `config/secondary_sources.yaml` konfiguriert und mit mittlerer Priorität gewichtet.
+- Pro Medium werden mehrere offizielle Quellentypen geprüft (Impressum, Redaktion, Team, Kontakt, Autoren-, Ressort- und interne Suchseiten) via `config/medium_profiles.yaml` (`known_paths`, `team_patterns`, `author_patterns`, `search_patterns`).
+- Pro Journalist werden Namensvarianten (Umlaute, Bindestriche, Initialen) per domain-interner Recherche geprüft.
+- Branchenquellen werden in `config/secondary_sources.yaml` konfiguriert und als zweite Ebene gewichtet (offiziell > Branchenquelle > schwacher Hinweis).
 
 ## Hauptbausteine
 - Crawler
