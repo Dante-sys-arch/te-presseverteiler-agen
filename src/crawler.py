@@ -1,4 +1,4 @@
-"""Crawler module for fetching official and secondary media sources."""
+"""Crawler module for fetching official medium, journalist-search and secondary sources."""
 
 from __future__ import annotations
 
@@ -9,9 +9,11 @@ import csv
 import re
 import time
 from urllib.parse import urlparse
+from collections import defaultdict
 
 import requests
 import yaml
+import pandas as pd
 
 
 USER_AGENT = "te-presseverteiler-agent/1.1 (+respectful-crawler)"
@@ -57,6 +59,8 @@ class Crawler:
         snapshots_dir: Path,
         source_rules_file: Path | None = None,
         secondary_sources_file: Path | None = None,
+        medium_profiles_file: Path | None = None,
+        master_file: Path | None = None,
         crawl_delay_s: float = 1.5,
         timeout_s: float = 20.0,
     ) -> None:
@@ -64,6 +68,8 @@ class Crawler:
         self.snapshots_dir = snapshots_dir
         self.source_rules_file = source_rules_file
         self.secondary_sources_file = secondary_sources_file
+        self.medium_profiles_file = medium_profiles_file
+        self.master_file = master_file
         self.crawl_delay_s = crawl_delay_s
         self.timeout_s = timeout_s
 
@@ -115,11 +121,79 @@ class Crawler:
             if not isinstance(entry, dict):
                 continue
             name = str(entry.get("name", "")).strip()
-            for url in entry.get("target_pages", []) or []:
+            pages = entry.get("target_pages", []) or entry.get("urls", []) or []
+            for url in pages:
                 cleaned = str(url).strip()
                 if name and cleaned:
                     normalized.append({"name": name, "url": cleaned})
         return normalized
+
+    def _load_master_contacts_by_medium(self) -> dict[str, list[str]]:
+        if not self.master_file or not self.master_file.exists():
+            return {}
+        sheets = pd.read_excel(self.master_file, sheet_name=None, header=None)
+        names_by_medium: dict[str, list[str]] = defaultdict(list)
+        for _, frame in sheets.items():
+            for _, row in frame.iterrows():
+                values = ["" if pd.isna(v) else str(v).strip() for v in row.tolist()]
+                if len(values) < 5 or "@" not in values[4]:
+                    continue
+                medium = values[0]
+                name = f"{values[2]} {values[3]}".strip()
+                if medium and name:
+                    names_by_medium[medium].append(name)
+        return {k: sorted(set(v)) for k, v in names_by_medium.items()}
+
+    def _normalize_query(self, name: str) -> str:
+        return re.sub(r"\s+", " ", name).strip()
+
+    def _build_official_urls(self, medium: str, base_urls: list[str], profiles: dict) -> list[tuple[str, str]]:
+        profile = profiles.get("mediums", {}).get(medium, {})
+        defaults = profiles.get("defaults", {})
+        primary_domain = (profile.get("primary_domain") or "").strip()
+        official_paths = profile.get("official_paths") or defaults.get("official_paths") or []
+        urls: list[tuple[str, str]] = []
+        for url in base_urls:
+            urls.append((self._official_source_name(url), url))
+        if primary_domain and official_paths:
+            for source_name, path in official_paths.items():
+                path_list = path if isinstance(path, list) else [path]
+                for entry in path_list:
+                    cleaned = str(entry or "").strip()
+                    if not cleaned:
+                        continue
+                    if cleaned.startswith("http"):
+                        url = cleaned
+                    else:
+                        url = f"https://{primary_domain.rstrip('/')}/{cleaned.lstrip('/')}"
+                    urls.append((source_name, url))
+        dedup: list[tuple[str, str]] = []
+        seen = set()
+        for source_name, url in urls:
+            if url not in seen:
+                seen.add(url)
+                dedup.append((source_name, url))
+        return dedup
+
+    def _build_internal_search_urls(self, medium: str, profiles: dict, names: list[str]) -> list[tuple[str, str]]:
+        profile = profiles.get("mediums", {}).get(medium, {})
+        defaults = profiles.get("defaults", {})
+        primary_domain = (profile.get("primary_domain") or "").strip()
+        patterns = profile.get("search_patterns") or defaults.get("search_patterns") or []
+        urls: list[tuple[str, str]] = []
+        for pattern in patterns:
+            tpl = str(pattern or "").strip()
+            if "{query}" not in tpl:
+                continue
+            for name in names:
+                query = self._normalize_query(name)
+                url = tpl.replace("{query}", query.replace(" ", "+"))
+                if "{domain}" in url:
+                    if not primary_domain:
+                        continue
+                    url = url.replace("{domain}", primary_domain)
+                urls.append(("interne_suche", url))
+        return urls
 
     def _safe_slug(self, value: str) -> str:
         return re.sub(r"[^a-zA-Z0-9_-]+", "_", value.strip()).strip("_") or "unknown"
@@ -189,21 +263,30 @@ class Crawler:
         results: dict[str, list[CrawlResult]] = {}
         session = requests.Session()
         session.headers.update({"User-Agent": USER_AGENT})
+        profiles = self._load_yaml(self.medium_profiles_file)
+        contacts_by_medium = self._load_master_contacts_by_medium()
 
         targets = self.load_targets()
         for target in targets:
-            for idx, url in enumerate(target.official_urls):
+            official_urls = self._build_official_urls(target.medium, target.official_urls, profiles)
+            search_urls = self._build_internal_search_urls(
+                target.medium,
+                profiles,
+                contacts_by_medium.get(target.medium, [])[:5],
+            )
+            medium_urls = official_urls + search_urls
+            for idx, (source_name, url) in enumerate(medium_urls):
                 if not self._domain_allowed("official_medium", url, rules):
                     continue
                 result = self._fetch(
                     medium=target.medium,
-                    source_name=self._official_source_name(url),
+                    source_name=source_name or self._official_source_name(url),
                     source_type="official_medium",
                     url=url,
                     session=session,
                 )
                 results.setdefault(target.medium, []).append(result)
-                if idx < len(target.official_urls) - 1:
+                if idx < len(medium_urls) - 1:
                     time.sleep(self.crawl_delay_s)
 
         secondary = self.load_secondary_sources()

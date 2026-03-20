@@ -48,6 +48,12 @@ class Parser:
         target = str(url or "").lower()
         if "impressum" in target:
             return "impressum"
+        if any(token in target for token in ("suche", "search", "?q=", "?query=")):
+            return "interne_suche"
+        if any(token in target for token in ("autor", "author")):
+            return "autorenseite"
+        if any(token in target for token in ("ressort", "rubrik", "section")):
+            return "ressortseite"
         if any(token in target for token in ("redaktion", "team", "autor", "ressort")):
             return "editorial"
         if "kontakt" in target:
@@ -127,6 +133,8 @@ class Parser:
             official_contacts: list[ParsedContact] = []
             official_status = "ok"
             industry_hints: list[IndustryHint] = []
+            official_documents: list[dict[str, str]] = []
+            industry_documents: list[dict[str, str]] = []
             official_total_sources = 0
             official_reachable_sources = 0
             official_page_types: set[str] = set()
@@ -143,7 +151,8 @@ class Parser:
 
                 if source_type == "official_medium":
                     official_total_sources += 1
-                    official_page_types.add(self._classify_official_page(getattr(snapshot, "url", "")))
+                    page_type = self._classify_official_page(getattr(snapshot, "url", ""))
+                    official_page_types.add(page_type)
                     expectation = self.coverage_assessor.classify_source_expectation(
                         getattr(snapshot, "source_name", ""),
                         getattr(snapshot, "url", ""),
@@ -158,8 +167,23 @@ class Parser:
                         official_reachable_sources += 1
                         if status_code in (404, 410):
                             not_found_sources += 1
+                    official_documents.append(
+                        {
+                            "url": getattr(snapshot, "url", ""),
+                            "source_name": getattr(snapshot, "source_name", ""),
+                            "page_type": page_type,
+                            "text": text[:15000],
+                        }
+                    )
                 elif source_type == "industry_source":
                     industry_hints.extend(self._extract_industry_hints(text, getattr(snapshot, "source_name", key)))
+                    industry_documents.append(
+                        {
+                            "url": getattr(snapshot, "url", ""),
+                            "source_name": getattr(snapshot, "source_name", key),
+                            "text": text[:15000],
+                        }
+                    )
 
             if official_total_sources and official_reachable_sources == 0:
                 official_status = "technisch_nicht_erreichbar"
@@ -171,6 +195,8 @@ class Parser:
             structured[key] = {
                 "official_contacts": [asdict(c) for c in official_contacts],
                 "industry_hints": [asdict(h) for h in industry_hints],
+                "official_documents": official_documents,
+                "industry_documents": industry_documents,
                 "medium_status": official_status,
                 "official_source_stats": {
                     "total_sources": official_total_sources,

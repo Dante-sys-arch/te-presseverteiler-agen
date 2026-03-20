@@ -350,14 +350,19 @@ class SourceCoverageAssessor:
 
     def classify_source_expectation(self, source_name: str, url: str) -> SourceExpectation:
         marker = f"{source_name} {url}".lower()
+        if any(token in marker for token in ("suche", "search", "?q=", "?query=")):
+            return SourceExpectation(source_category="suchseite", contact_expected=False)
         if any(token in marker for token in ("kontakt", "contact")):
             return SourceExpectation(source_category="kontaktquelle", contact_expected=True)
         if any(token in marker for token in ("team", "redaktion", "editorial")):
             return SourceExpectation(source_category="teamquelle", contact_expected=True)
         if any(token in marker for token in ("autor", "author")):
             return SourceExpectation(source_category="autorenseite", contact_expected=True)
+        if any(token in marker for token in ("ressort", "rubrik", "section")):
+            return SourceExpectation(source_category="ressortseite", contact_expected=True)
         if "impressum" in marker:
             return SourceExpectation(source_category="impressum_only", contact_expected=False)
+        return SourceExpectation(source_category="sonstige_offizielle_quelle", contact_expected=False)
         if any(token in marker for token in ("rss", "sitemap", "cdn", "api")):
             return SourceExpectation(source_category="technische_quelle", contact_expected=False)
         return SourceExpectation(source_category="kontaktquelle", contact_expected=True)

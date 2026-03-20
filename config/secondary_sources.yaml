@@ -1,16 +1,24 @@
 sources:
   - name: kress
+    domain: kress.de
+    trust: medium
     target_pages:
       - https://kress.de/news
+      - https://kress.de/suche
   - name: turi2
+    domain: turi2.de
+    trust: medium
     target_pages:
       - https://turi2.de/aktuell/
+      - https://turi2.de/tag/personalien/
   - name: MEEDIA
+    domain: meedia.de
+    trust: medium
     target_pages:
       - https://meedia.de/
+      - https://meedia.de/news/
   - name: horizont
+    domain: horizont.net
+    trust: medium
     target_pages:
       - https://www.horizont.net/news/
-  - name: newsroom
-    target_pages:
-      - https://www.newsroom.de/news/

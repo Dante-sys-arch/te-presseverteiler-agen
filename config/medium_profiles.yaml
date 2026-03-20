@@ -1,0 +1,49 @@
+defaults:
+  official_paths:
+    impressum:
+      - /impressum
+    redaktion:
+      - /redaktion
+    team:
+      - /team
+    kontakt:
+      - /kontakt
+    autorenseiten:
+      - /autor
+    ressortseiten:
+      - /wirtschaft
+  author_patterns:
+    - /autor/{slug}
+    - /author/{slug}
+  team_patterns:
+    - /team
+    - /redaktion
+  contact_patterns:
+    - /kontakt
+    - /impressum
+  search_patterns:
+    - https://{domain}/suche?q={query}
+    - https://{domain}/search?q={query}
+mediums:
+  Handelsblatt:
+    primary_domain: handelsblatt.com
+    official_paths:
+      impressum:
+        - /impressum
+      redaktion:
+        - /unternehmen/handelsblatt-media-group/
+      team:
+        - /politik/deutschland/
+      kontakt:
+        - /service/kontakt/
+      autorenseiten:
+        - /autoren/
+      ressortseiten:
+        - /politik/
+        - /finanzen/
+    search_patterns:
+      - https://www.handelsblatt.com/suche?k={query}
+  "Frankfurter Allgemeine Zeitung (FAZ)":
+    primary_domain: faz.net
+    search_patterns:
+      - https://www.faz.net/suche/?query={query}

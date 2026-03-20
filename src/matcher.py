@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 import csv
 from collections import defaultdict
+import re
+import unicodedata
 
 import pandas as pd
 from rapidfuzz import fuzz
@@ -34,18 +36,72 @@ class Matcher:
         source_label = ", ".join(sources) if sources else "Branchenquelle"
         return f"Plausibler Wechselhinweis aus {source_label}"
 
+    def _normalize_name(self, value: str) -> str:
+        txt = unicodedata.normalize("NFKD", str(value or "").strip().lower())
+        txt = "".join(ch for ch in txt if not unicodedata.combining(ch))
+        txt = re.sub(r"\b(dr|prof|dipl|mag)\.?\b", "", txt)
+        txt = re.sub(r"[^a-z0-9\s-]", " ", txt)
+        txt = txt.replace("ae", "a").replace("oe", "o").replace("ue", "u")
+        return re.sub(r"\s+", " ", txt).strip()
+
+    def _name_variants(self, full_name: str) -> set[str]:
+        normalized = self._normalize_name(full_name)
+        parts = [p for p in re.split(r"[\s\-]+", normalized) if p]
+        if len(parts) < 2:
+            return {normalized}
+        first, last = parts[0], parts[-1]
+        variants = {
+            normalized,
+            normalized.replace("-", " "),
+            f"{first} {last}",
+            f"{first}-{last}",
+            f"{first[0]} {last}",
+            f"{first[0]}. {last}",
+            f"{last}, {first}",
+        }
+        replace_map = {"ae": "ä", "oe": "ö", "ue": "ü", "ss": "ß"}
+        for candidate in list(variants):
+            remapped = candidate
+            for src, dest in replace_map.items():
+                remapped = remapped.replace(src, dest)
+            variants.add(self._normalize_name(remapped))
+        return {v for v in variants if v}
+
+    def _official_evidence(self, master_name: str, documents: list[dict]) -> dict[str, list[str]]:
+        variants = self._name_variants(master_name)
+        evidence: dict[str, list[str]] = defaultdict(list)
+        for doc in documents:
+            haystack = self._normalize_name(doc.get("text", ""))
+            if not haystack:
+                continue
+            for variant in variants:
+                if variant and variant in haystack:
+                    page_type = doc.get("page_type", "") or "other"
+                    evidence[page_type].append(doc.get("url", ""))
+                    break
+        return evidence
+
+    def _industry_mentions(self, master_name: str, documents: list[dict]) -> list[dict]:
+        variants = self._name_variants(master_name)
+        found: list[dict] = []
+        for doc in documents:
+            haystack = self._normalize_name(doc.get("text", ""))
+            if any(variant in haystack for variant in variants if variant):
+                found.append(doc)
+        return found
+
     def _recommended_action(self, change_flags: list[str]) -> str:
         if "Medium nicht erreichbar" in change_flags:
             return "spaeter erneut pruefen oder URL korrigieren"
-        if "Medium wahrscheinlich nicht mehr aktiv" in change_flags:
-            return "Mediumstatus manuell pruefen"
-        if "Journalist bei Medium nicht mehr gefunden" in change_flags:
+        if "bei anderem Medium gefunden" in change_flags:
+            return "zuordnung auf neues Medium pruefen"
+        if "auf offiziellen Seiten nicht bestaetigt" in change_flags:
             return "deaktivieren oder manuell pruefen"
-        if "Auf offizieller Quelle nicht belegt" in change_flags:
+        if "Wechsel in Branchenquelle gemeldet" in change_flags:
             return "manuell pruefen"
-        if "Weitere Quelle pruefen" in change_flags:
+        if "nur schwacher Webhinweis" in change_flags:
             return "weitere Quelle pruefen"
-        if "Wahrscheinlicher Medienwechsel" in change_flags:
+        if "weitere Pruefung noetig" in change_flags:
             return "weitere Quelle pruefen"
         return "Keine Aktion"
 
@@ -149,6 +205,7 @@ class Matcher:
                 continue
             payload = parsed_structured.get(medium, {})
             official = payload.get("official_contacts", [])
+            official_documents = payload.get("official_documents", [])
             medium_status = payload.get("medium_status", "ok")
             official_source_stats = payload.get("official_source_stats", {})
             has_expected_contact_source = int(official_source_stats.get("contact_expected_sources", 0) or 0) > 0
@@ -194,7 +251,7 @@ class Matcher:
                         "im_master": "Ja",
                         "im_web_gefunden": "Unbekannt",
                         "externer_hinweis": self._compose_external_hint(aggregated_hints),
-                        "was_ist_anders": "Medium wahrscheinlich nicht mehr aktiv",
+                        "was_ist_anders": "weitere Pruefung noetig",
                         "alter_stand": "",
                         "neuer_stand": "",
                         "quelle": "offizielle Mediumsquelle",
@@ -213,13 +270,13 @@ class Matcher:
                         "im_master": "Ja",
                         "im_web_gefunden": "Nein",
                         "externer_hinweis": "kein externer Hinweis",
-                        "was_ist_anders": "Weitere Quelle pruefen",
+                        "was_ist_anders": "nur schwacher Webhinweis",
                         "alter_stand": "",
                         "neuer_stand": "",
                         "quelle": "offizielle Mediumsquelle",
                         "empfohlene_aktion": "weitere Quelle pruefen",
                         "pruefen": "Ja",
-                        "kommentar": "Medium nur ueber knappe Quelle geprueft; Weitere belastbare Quelle erforderlich",
+                        "kommentar": "nur Impressum oder interne Suchseite ohne Treffer",
                     }
                 )
                 continue
@@ -227,11 +284,13 @@ class Matcher:
             for master in medium_master_contacts:
                 hint_matches = self._find_industry_hints(master, all_industry_hints)
                 official_match = self._find_official_match(master, official)
+                official_evidence = self._official_evidence(self._name(master), official_documents)
                 coverage = self.coverage_assessor.assess(
                     medium_status=medium_status,
                     source_stats=official_source_stats,
                     has_external_hint=bool(hint_matches),
                 )
+                industry_mentions = self._industry_mentions(self._name(master), payload.get("industry_documents", []))
 
                 change_flags: list[str] = []
                 externer_hinweis = self._compose_external_hint(hint_matches)
@@ -240,42 +299,73 @@ class Matcher:
                 neuer_stand = ""
                 kommentar = coverage.comment
 
-                if official_match:
+                if official_match or official_evidence:
                     im_web = "Ja"
-                    change_flags.append("Journalist bestaetigt")
+                    change_flags.append("offiziell bestaetigt")
                     for field, label in (("email", "E-Mail geaendert"), ("telefon", "Telefon geaendert"), ("rolle", "Ressort geaendert")):
                         old = (master.get(field if field != "rolle" else "ressort", "") or "").strip().lower()
-                        new = (official_match.get(field, "") or "").strip().lower()
+                        new = (official_match or {}).get(field, "").strip().lower()
                         if old and new and old != new:
                             change_flags.append(label)
-                    neuer_stand = f"{official_match.get('email', '')} | {official_match.get('telefon', '')} | {official_match.get('rolle', '')}"
-                    kommentar = "offizielle Quelle bestaetigt Abweichung" if len(change_flags) > 1 else "offizielle Quelle bestaetigt Kontakt"
+                    if official_match:
+                        neuer_stand = f"{official_match.get('email', '')} | {official_match.get('telefon', '')} | {official_match.get('rolle', '')}"
+                    if official_evidence.get("team") or official_evidence.get("editorial"):
+                        kommentar = "offizielle Teamseite"
+                    elif official_evidence.get("autorenseite"):
+                        kommentar = "Autorenseite"
+                    elif official_evidence.get("impressum"):
+                        kommentar = "nur Impressum"
+                    elif official_evidence.get("interne_suche"):
+                        kommentar = "interne Suchseite mit Treffer"
+                    else:
+                        kommentar = "offizielle Quelle bestaetigt Kontakt"
                 else:
                     if hint_matches and coverage.level != "hoch":
-                        change_flags.append("Wahrscheinlicher Medienwechsel")
+                        change_flags.append("Wechsel in Branchenquelle gemeldet")
                         pruefen = "Ja"
                         kommentar = "Branchenquelle meldet Wechsel"
                     elif coverage.level == "hoch":
-                        change_flags.append("Journalist bei Medium nicht mehr gefunden")
+                        change_flags.append("auf offiziellen Seiten nicht bestaetigt")
                         pruefen = "Ja"
-                        kommentar = "offizielle Quelle bestaetigt Abweichung"
+                        kommentar = "offizielle Team-/Autorenseite ohne Treffer"
                     elif has_expected_contact_source and coverage.level == "mittel":
-                        change_flags.append("Auf offizieller Quelle nicht belegt")
+                        change_flags.append("auf offiziellen Seiten nicht bestaetigt")
                         pruefen = "Ja"
                         kommentar = "Kontakt auf belastbarer Quelle nicht sichtbar"
                     else:
-                        change_flags.append("Weitere Quelle pruefen")
+                        change_flags.append("nur schwacher Webhinweis")
                         pruefen = "Ja"
-                        kommentar = "keine Team-/Autorenseite vorhanden"
+                        kommentar = "interne Suchseite ohne Treffer"
 
-                if hint_matches and official_match:
-                    change_flags.append("Weitere Quelle pruefen")
+                if industry_mentions and not hint_matches and not official_match:
+                    change_flags.append("nur schwacher Webhinweis")
+                    pruefen = "Ja"
+                    externer_hinweis = "Namensnennung in Branchenquelle"
+                    kommentar = "Branchenquelle"
+
+                if hint_matches and (official_match or official_evidence):
+                    change_flags.append("weitere Pruefung noetig")
                     pruefen = "Ja"
                     kommentar = "offizielle Quelle bestaetigt Kontakt, externer Hinweis abweichend"
+
+                other_medium_found = False
+                for other_medium, other_payload in parsed_structured.items():
+                    if other_medium == medium:
+                        continue
+                    other_docs = other_payload.get("official_documents", [])
+                    if self._official_evidence(self._name(master), other_docs):
+                        other_medium_found = True
+                        kommentar = f"bei anderem Medium gefunden: {other_medium}"
+                        break
+                if other_medium_found and not (official_match or official_evidence):
+                    change_flags = ["bei anderem Medium gefunden"]
+                    pruefen = "Ja"
 
                 source_parts = ["offizielle Mediumsquelle"]
                 if hint_matches:
                     source_parts.extend(sorted({h.get("source", "") for h in hint_matches if h.get("source")}))
+                if industry_mentions and not hint_matches:
+                    source_parts.append("Branchenquelle")
                 source = ", ".join(dict.fromkeys(source_parts))
                 empfehlung = self._recommended_action(change_flags)
                 rows.append(

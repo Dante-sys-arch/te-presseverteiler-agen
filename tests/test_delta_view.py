@@ -54,6 +54,7 @@ class DeltaViewTests(unittest.TestCase):
             {
                 "Handelsblatt": {
                     "official_contacts": [{"vorname": "Anna", "nachname": "Muster", "email": "anna.muster@handelsblatt.com", "telefon": "+49 30 111", "rolle": "Finanzen"}],
+                    "official_documents": [{"url": "https://handelsblatt.com/team", "page_type": "team", "text": "Anna Muster"}],
                     "industry_hints": [],
                     "medium_status": "ok",
                 }
@@ -61,7 +62,7 @@ class DeltaViewTests(unittest.TestCase):
             scan_scope_media={"Handelsblatt"},
         )
         self.assertEqual(row["Im_Web_gefunden"], "Ja")
-        self.assertIn("Journalist bestaetigt", row["Was_ist_anders"])
+        self.assertIn("offiziell bestaetigt", row["Was_ist_anders"])
 
     def test_official_missing_industry_reports_probable_change(self):
         row = self._first_row(
@@ -81,14 +82,15 @@ class DeltaViewTests(unittest.TestCase):
             scan_scope_media={"Handelsblatt"},
         )
         self.assertIn("Plausibler Wechselhinweis aus kress", row["Externer_Hinweis"])
-        self.assertIn("Wahrscheinlicher Medienwechsel", row["Was_ist_anders"])
-        self.assertEqual(row["Empfohlene_Aktion"], "weitere Quelle pruefen")
+        self.assertIn("Wechsel in Branchenquelle gemeldet", row["Was_ist_anders"])
+        self.assertEqual(row["Empfohlene_Aktion"], "manuell pruefen")
 
     def test_official_conflicts_with_industry(self):
         row = self._first_row(
             {
                 "Handelsblatt": {
                     "official_contacts": [{"vorname": "Anna", "nachname": "Muster", "email": "anna.muster@handelsblatt.com", "telefon": "+49 30 111", "rolle": "Finanzen"}],
+                    "official_documents": [{"url": "https://handelsblatt.com/autor/anna-muster", "page_type": "autorenseite", "text": "Anna Muster"}],
                     "industry_hints": [],
                     "medium_status": "ok",
                 },
@@ -102,7 +104,7 @@ class DeltaViewTests(unittest.TestCase):
         )
         self.assertIn("Plausibler Wechselhinweis aus turi2", row["Externer_Hinweis"])
         self.assertEqual(row["Pruefen"], "Ja")
-        self.assertIn("Weitere Quelle pruefen", row["Was_ist_anders"])
+        self.assertIn("weitere Pruefung noetig", row["Was_ist_anders"])
 
     def test_medium_technical_error(self):
         row = self._first_row(
@@ -137,8 +139,8 @@ class DeltaViewTests(unittest.TestCase):
         self.assertEqual(len(delta), 1)
         row = delta[0]
         self.assertEqual(row["Journalist"], "(Medium-Ebene)")
-        self.assertIn("Weitere Quelle pruefen", row["Was_ist_anders"])
-        self.assertIn("Medium nur ueber knappe Quelle geprueft", row["Kommentar"])
+        self.assertIn("nur schwacher Webhinweis", row["Was_ist_anders"])
+        self.assertIn("nur Impressum", row["Kommentar"])
 
     def test_high_coverage_missing_contact_marks_not_found(self):
         row = self._first_row(
@@ -152,7 +154,7 @@ class DeltaViewTests(unittest.TestCase):
             },
             scan_scope_media={"Handelsblatt"},
         )
-        self.assertIn("Journalist bei Medium nicht mehr gefunden", row["Was_ist_anders"])
+        self.assertIn("auf offiziellen Seiten nicht bestaetigt", row["Was_ist_anders"])
         self.assertEqual(row["Empfohlene_Aktion"], "deaktivieren oder manuell pruefen")
 
     def test_weak_official_with_external_hint_is_not_final_missing(self):
@@ -172,10 +174,8 @@ class DeltaViewTests(unittest.TestCase):
             },
             scan_scope_media={"Handelsblatt"},
         )
-        self.assertNotIn("Journalist bei Medium nicht mehr gefunden", row["Was_ist_anders"])
-        self.assertTrue(
-            "Wahrscheinlicher Medienwechsel" in row["Was_ist_anders"] or "Weitere Quelle pruefen" in row["Was_ist_anders"]
-        )
+        self.assertNotIn("auf offiziellen Seiten nicht bestaetigt", row["Was_ist_anders"])
+        self.assertTrue("Wechsel in Branchenquelle gemeldet" in row["Was_ist_anders"] or "nur schwacher Webhinweis" in row["Was_ist_anders"])
         self.assertIn("Plausibler Wechselhinweis", row["Externer_Hinweis"])
 
     def test_unscanned_medium_not_reported_as_missing_in_main_sheet(self):
@@ -210,7 +210,7 @@ class DeltaViewTests(unittest.TestCase):
             },
             scan_scope_media={"Handelsblatt"},
         )
-        self.assertIn("Auf offizieller Quelle nicht belegt", row["Was_ist_anders"])
+        self.assertIn("auf offiziellen Seiten nicht bestaetigt", row["Was_ist_anders"])
         self.assertEqual(row["Kommentar"], "Kontakt auf belastbarer Quelle nicht sichtbar")
 
     def test_medium_probably_inactive(self):
@@ -225,7 +225,64 @@ class DeltaViewTests(unittest.TestCase):
             scan_scope_media={"Handelsblatt"},
         )
         self.assertEqual(row["Journalist"], "(Medium-Ebene)")
-        self.assertIn("Medium wahrscheinlich nicht mehr aktiv", row["Was_ist_anders"])
+        self.assertIn("weitere Pruefung noetig", row["Was_ist_anders"])
+
+    def test_journalist_found_on_author_page_without_impressum_match(self):
+        row = self._first_row(
+            {
+                "Handelsblatt": {
+                    "official_contacts": [],
+                    "official_documents": [{"url": "https://handelsblatt.com/autor/anna-muster", "page_type": "autorenseite", "text": "Anna Muster berichtet ..."}],
+                    "industry_hints": [],
+                    "medium_status": "ok",
+                    "official_source_stats": {"total_sources": 1, "reachable_sources": 1, "has_impressum": False, "has_editorial_pages": True, "contact_expected_sources": 1},
+                }
+            },
+            scan_scope_media={"Handelsblatt"},
+        )
+        self.assertIn("offiziell bestaetigt", row["Was_ist_anders"])
+        self.assertEqual(row["Kommentar"], "Autorenseite")
+
+    def test_found_at_other_medium(self):
+        row = self._first_row(
+            {
+                "Handelsblatt": {"official_contacts": [], "official_documents": [], "industry_hints": [], "medium_status": "ok", "official_source_stats": {"total_sources": 2, "reachable_sources": 2, "has_impressum": True, "has_editorial_pages": True}},
+                "Andere Zeitung": {"official_contacts": [], "official_documents": [{"url": "https://andere.de/team", "page_type": "team", "text": "Anna Muster"}], "industry_hints": [], "medium_status": "ok"},
+            },
+            scan_scope_media={"Handelsblatt"},
+        )
+        self.assertIn("bei anderem Medium gefunden", row["Was_ist_anders"])
+        self.assertIn("anderem Medium", row["Kommentar"])
+
+    def test_name_variant_umlaut_and_hyphen(self):
+        class UmlautMatcher(StubMatcher):
+            def load_master_contacts(self):
+                return [
+                    {
+                        "medium": "Handelsblatt",
+                        "vorname": "Jörg",
+                        "nachname": "Müller-Schmidt",
+                        "email": "joerg.mueller-schmidt@handelsblatt.com",
+                        "telefon": "+49 30 111",
+                        "ressort": "Finanzen",
+                    }
+                ]
+
+        matcher = UmlautMatcher()
+        rows, _ = matcher.build_delta_inputs(
+            {
+                "Handelsblatt": {
+                    "official_contacts": [],
+                    "official_documents": [{"url": "https://handelsblatt.com/team", "page_type": "team", "text": "Jorg Mueller Schmidt"}],
+                    "industry_hints": [],
+                    "medium_status": "ok",
+                    "official_source_stats": {"total_sources": 2, "reachable_sources": 2, "has_impressum": True, "has_editorial_pages": True, "contact_expected_sources": 1},
+                }
+            },
+            scan_scope_media={"Handelsblatt"},
+        )
+        delta = self.diff_engine.build_delta_rows(rows)
+        self.assertIn("offiziell bestaetigt", delta[0]["Was_ist_anders"])
 
 
 if __name__ == "__main__":
