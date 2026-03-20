@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 import csv
-from collections import defaultdict
 import re
 import unicodedata
 
@@ -93,15 +93,15 @@ class Matcher:
     def _recommended_action(self, change_flags: list[str]) -> str:
         if "Medium nicht erreichbar" in change_flags:
             return "spaeter erneut pruefen oder URL korrigieren"
-        if "bei anderem Medium gefunden" in change_flags:
-            return "zuordnung auf neues Medium pruefen"
-        if "auf offiziellen Seiten nicht bestaetigt" in change_flags:
+        if "Medium wahrscheinlich nicht mehr aktiv" in change_flags:
+            return "Mediumstatus manuell pruefen"
+        if "Journalist bei Medium nicht mehr gefunden" in change_flags:
             return "deaktivieren oder manuell pruefen"
-        if "Wechsel in Branchenquelle gemeldet" in change_flags:
-            return "manuell pruefen"
-        if "nur schwacher Webhinweis" in change_flags:
+        if "Auf offiziellen Seiten nicht bestaetigt" in change_flags:
             return "weitere Quelle pruefen"
-        if "weitere Pruefung noetig" in change_flags:
+        if "Wahrscheinlicher Medienwechsel" in change_flags:
+            return "manuell pruefen"
+        if "Weitere Quelle pruefen" in change_flags:
             return "weitere Quelle pruefen"
         return "Keine Aktion"
 
@@ -142,7 +142,7 @@ class Matcher:
         email = master.get("email", "").lower()
         name = self._name(master).lower()
         for record in official_contacts:
-            if record.get("email", "").lower() == email:
+            if record.get("email", "").lower() == email and email:
                 return record
 
         best_score = 0
@@ -160,9 +160,7 @@ class Matcher:
         out: list[dict] = []
         for hint in industry_hints:
             journalist = str(hint.get("journalist", "")).lower()
-            if not journalist:
-                continue
-            if fuzz.ratio(name, journalist) >= 92:
+            if journalist and fuzz.ratio(name, journalist) >= 92:
                 out.append(hint)
         return out
 
@@ -203,6 +201,7 @@ class Matcher:
                         }
                     )
                 continue
+
             payload = parsed_structured.get(medium, {})
             official = payload.get("official_contacts", [])
             official_documents = payload.get("official_documents", [])
@@ -220,9 +219,7 @@ class Matcher:
                 for master in medium_master_contacts
                 for hint in self._find_industry_hints(master, all_industry_hints)
             ]
-            weak_medium_only = coverage.level == "niedrig" or (
-                coverage.level == "mittel" and not has_expected_contact_source
-            )
+            weak_medium_only = coverage.level == "niedrig" or (coverage.level == "mittel" and not has_expected_contact_source)
 
             if medium_status == "technisch_nicht_erreichbar":
                 rows.append(
@@ -235,7 +232,7 @@ class Matcher:
                         "was_ist_anders": "Medium nicht erreichbar",
                         "alter_stand": "",
                         "neuer_stand": "",
-                        "quelle": "offizielle Mediumsquelle",
+                        "quelle": "official_medium",
                         "empfohlene_aktion": "spaeter erneut pruefen oder URL korrigieren",
                         "pruefen": "Ja",
                         "kommentar": "Quelle technisch nicht erreichbar",
@@ -251,13 +248,13 @@ class Matcher:
                         "im_master": "Ja",
                         "im_web_gefunden": "Unbekannt",
                         "externer_hinweis": self._compose_external_hint(aggregated_hints),
-                        "was_ist_anders": "weitere Pruefung noetig",
+                        "was_ist_anders": "Medium wahrscheinlich nicht mehr aktiv",
                         "alter_stand": "",
                         "neuer_stand": "",
-                        "quelle": "offizielle Mediumsquelle",
+                        "quelle": "official_medium",
                         "empfohlene_aktion": "Mediumstatus manuell pruefen",
                         "pruefen": "Ja",
-                        "kommentar": "keine Team-/Autorenseite vorhanden",
+                        "kommentar": "keine belastbare offizielle Quelle",
                     }
                 )
                 continue
@@ -270,13 +267,13 @@ class Matcher:
                         "im_master": "Ja",
                         "im_web_gefunden": "Nein",
                         "externer_hinweis": "kein externer Hinweis",
-                        "was_ist_anders": "nur schwacher Webhinweis",
+                        "was_ist_anders": "Weitere Quelle pruefen",
                         "alter_stand": "",
                         "neuer_stand": "",
-                        "quelle": "offizielle Mediumsquelle",
+                        "quelle": "official_medium",
                         "empfohlene_aktion": "weitere Quelle pruefen",
                         "pruefen": "Ja",
-                        "kommentar": "nur Impressum oder interne Suchseite ohne Treffer",
+                        "kommentar": "nur Impressum vorhanden",
                     }
                 )
                 continue
@@ -301,7 +298,7 @@ class Matcher:
 
                 if official_match or official_evidence:
                     im_web = "Ja"
-                    change_flags.append("offiziell bestaetigt")
+                    change_flags.append("Journalist bestaetigt")
                     for field, label in (("email", "E-Mail geaendert"), ("telefon", "Telefon geaendert"), ("rolle", "Ressort geaendert")):
                         old = (master.get(field if field != "rolle" else "ressort", "") or "").strip().lower()
                         new = (official_match or {}).get(field, "").strip().lower()
@@ -310,62 +307,49 @@ class Matcher:
                     if official_match:
                         neuer_stand = f"{official_match.get('email', '')} | {official_match.get('telefon', '')} | {official_match.get('rolle', '')}"
                     if official_evidence.get("team") or official_evidence.get("editorial"):
-                        kommentar = "offizielle Teamseite"
+                        kommentar = "offizielle Teamseite bestaetigt"
                     elif official_evidence.get("autorenseite"):
-                        kommentar = "Autorenseite"
+                        kommentar = "Autorenprofil gefunden"
                     elif official_evidence.get("impressum"):
-                        kommentar = "nur Impressum"
+                        kommentar = "nur Impressum vorhanden"
                     elif official_evidence.get("interne_suche"):
                         kommentar = "interne Suchseite mit Treffer"
                     else:
-                        kommentar = "offizielle Quelle bestaetigt Kontakt"
+                        kommentar = "offizielle Quelle bestaetigt"
                 else:
                     if hint_matches and coverage.level != "hoch":
-                        change_flags.append("Wechsel in Branchenquelle gemeldet")
+                        change_flags.append("Wahrscheinlicher Medienwechsel")
                         pruefen = "Ja"
                         kommentar = "Branchenquelle meldet Wechsel"
                     elif coverage.level == "hoch":
-                        change_flags.append("auf offiziellen Seiten nicht bestaetigt")
+                        change_flags.append("Journalist bei Medium nicht mehr gefunden")
                         pruefen = "Ja"
-                        kommentar = "offizielle Team-/Autorenseite ohne Treffer"
+                        kommentar = "mehrere relevante offizielle Seiten ohne Treffer"
                     elif has_expected_contact_source and coverage.level == "mittel":
-                        change_flags.append("auf offiziellen Seiten nicht bestaetigt")
+                        change_flags.append("Auf offiziellen Seiten nicht bestaetigt")
                         pruefen = "Ja"
-                        kommentar = "Kontakt auf belastbarer Quelle nicht sichtbar"
+                        kommentar = "keine belastbare offizielle Quelle"
                     else:
-                        change_flags.append("nur schwacher Webhinweis")
+                        change_flags.append("Weitere Quelle pruefen")
                         pruefen = "Ja"
-                        kommentar = "interne Suchseite ohne Treffer"
+                        kommentar = "nur Impressum vorhanden"
 
                 if industry_mentions and not hint_matches and not official_match:
-                    change_flags.append("nur schwacher Webhinweis")
+                    if "Weitere Quelle pruefen" not in change_flags:
+                        change_flags.append("Weitere Quelle pruefen")
                     pruefen = "Ja"
                     externer_hinweis = "Namensnennung in Branchenquelle"
-                    kommentar = "Branchenquelle"
+                    kommentar = "Branchenquelle meldet Wechsel"
 
                 if hint_matches and (official_match or official_evidence):
-                    change_flags.append("weitere Pruefung noetig")
+                    if "Weitere Quelle pruefen" not in change_flags:
+                        change_flags.append("Weitere Quelle pruefen")
                     pruefen = "Ja"
-                    kommentar = "offizielle Quelle bestaetigt Kontakt, externer Hinweis abweichend"
+                    kommentar = "offizielle Teamseite bestaetigt, Branchenhinweis abweichend"
 
-                other_medium_found = False
-                for other_medium, other_payload in parsed_structured.items():
-                    if other_medium == medium:
-                        continue
-                    other_docs = other_payload.get("official_documents", [])
-                    if self._official_evidence(self._name(master), other_docs):
-                        other_medium_found = True
-                        kommentar = f"bei anderem Medium gefunden: {other_medium}"
-                        break
-                if other_medium_found and not (official_match or official_evidence):
-                    change_flags = ["bei anderem Medium gefunden"]
-                    pruefen = "Ja"
-
-                source_parts = ["offizielle Mediumsquelle"]
-                if hint_matches:
-                    source_parts.extend(sorted({h.get("source", "") for h in hint_matches if h.get("source")}))
-                if industry_mentions and not hint_matches:
-                    source_parts.append("Branchenquelle")
+                source_parts = ["official_medium"]
+                if hint_matches or industry_mentions:
+                    source_parts.append("industry_source")
                 source = ", ".join(dict.fromkeys(source_parts))
                 empfehlung = self._recommended_action(change_flags)
                 rows.append(
@@ -386,6 +370,5 @@ class Matcher:
                 )
         return rows, not_scanned_rows
 
-    # Backward-compatible method used by older flow/tests.
     def match(self, parsed_data: dict[str, list[dict]]) -> dict[str, list[dict]]:
         return parsed_data

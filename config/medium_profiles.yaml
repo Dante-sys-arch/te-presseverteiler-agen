@@ -1,5 +1,5 @@
 defaults:
-  official_paths:
+  known_paths:
     impressum:
       - /impressum
     redaktion:
@@ -11,23 +11,29 @@ defaults:
     autorenseiten:
       - /autor
     ressortseiten:
+      - /politik
       - /wirtschaft
-  author_patterns:
-    - /autor/{slug}
-    - /author/{slug}
-  team_patterns:
-    - /team
-    - /redaktion
-  contact_patterns:
+  preferred_contact_pages:
     - /kontakt
     - /impressum
+  team_patterns:
+    - https://{domain}/team
+    - https://{domain}/redaktion
+  author_patterns:
+    - https://{domain}/autor/{slug}
+    - https://{domain}/author/{slug}
   search_patterns:
     - https://{domain}/suche?q={query}
     - https://{domain}/search?q={query}
+  source_priority:
+    official_medium: hoch
+    industry_source: mittel
+    weak_signal: niedrig
+
 mediums:
   Handelsblatt:
     primary_domain: handelsblatt.com
-    official_paths:
+    known_paths:
       impressum:
         - /impressum
       redaktion:
@@ -41,9 +47,40 @@ mediums:
       ressortseiten:
         - /politik/
         - /finanzen/
+    preferred_contact_pages:
+      - /service/kontakt/
+      - /impressum
+    team_patterns:
+      - https://www.handelsblatt.com/politik/deutschland/
+    author_patterns:
+      - https://www.handelsblatt.com/autoren/{slug}
     search_patterns:
       - https://www.handelsblatt.com/suche?k={query}
+    source_priority:
+      official_medium: hoch
+      industry_source: mittel
+      weak_signal: niedrig
+
   "Frankfurter Allgemeine Zeitung (FAZ)":
     primary_domain: faz.net
+    known_paths:
+      impressum:
+        - /impressum
+      redaktion:
+        - /aktuell/
+      team:
+        - /aktuell/feuilleton/
+      kontakt:
+        - /service/
+      autorenseiten:
+        - /aktuell/autoren/
+      ressortseiten:
+        - /aktuell/politik/
+        - /aktuell/wirtschaft/
+    preferred_contact_pages:
+      - /service/
+      - /impressum
+    author_patterns:
+      - https://www.faz.net/aktuell/autoren/{slug}
     search_patterns:
       - https://www.faz.net/suche/?query={query}

@@ -362,10 +362,9 @@ class SourceCoverageAssessor:
             return SourceExpectation(source_category="ressortseite", contact_expected=True)
         if "impressum" in marker:
             return SourceExpectation(source_category="impressum_only", contact_expected=False)
-        return SourceExpectation(source_category="sonstige_offizielle_quelle", contact_expected=False)
         if any(token in marker for token in ("rss", "sitemap", "cdn", "api")):
             return SourceExpectation(source_category="technische_quelle", contact_expected=False)
-        return SourceExpectation(source_category="kontaktquelle", contact_expected=True)
+        return SourceExpectation(source_category="sonstige_offizielle_quelle", contact_expected=False)
 class Validator:
     """Validates records in one central place with status + confidence."""
 
