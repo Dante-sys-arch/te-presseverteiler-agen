@@ -84,15 +84,39 @@ class Matcher:
                 out.append(hint)
         return out
 
-    def build_delta_inputs(self, parsed_structured: dict[str, dict]) -> list[dict]:
+    def build_delta_inputs(
+        self,
+        parsed_structured: dict[str, dict],
+        scan_scope_media: set[str] | None = None,
+    ) -> tuple[list[dict], list[dict]]:
         master_contacts = self.load_master_contacts()
         all_industry_hints: list[dict] = []
         for payload in parsed_structured.values():
             all_industry_hints.extend(payload.get("industry_hints", []))
 
+        scoped_media = scan_scope_media
         rows: list[dict] = []
+        not_scanned_rows: list[dict] = []
         for master in master_contacts:
             medium = master.get("medium", "")
+            if scoped_media is not None and medium not in scoped_media:
+                not_scanned_rows.append(
+                    {
+                        "medium": medium,
+                        "journalist": self._name(master),
+                        "im_master": "Ja",
+                        "im_web_gefunden": "",
+                        "externer_hinweis": "",
+                        "was_ist_anders": "Nicht im aktuellen Scan-Scope",
+                        "alter_stand": f"{master.get('email', '')} | {master.get('telefon', '')} | {master.get('ressort', '')}",
+                        "neuer_stand": "",
+                        "quelle": "",
+                        "empfohlene_aktion": "Keine Aktion",
+                        "pruefen": "Nein",
+                        "kommentar": "",
+                    }
+                )
+                continue
             payload = parsed_structured.get(medium, {})
             official = payload.get("official_contacts", [])
             medium_status = payload.get("medium_status", "ok")
@@ -106,7 +130,12 @@ class Matcher:
             im_web = "Nein"
             neuer_stand = ""
 
-            if official_match:
+            if medium_status == "technisch_nicht_erreichbar":
+                change_flags.append("Medium_nicht_erreichbar")
+                empfehlung = "Erneut prüfen"
+                pruefen = "Ja"
+                im_web = "Unbekannt"
+            elif official_match:
                 im_web = "Ja"
                 change_flags.append("Journalist bei Medium bestätigt")
                 for field, label in (("email", "E-Mail geändert"), ("telefon", "Telefon geändert"), ("rolle", "Ressort geändert")):
@@ -120,10 +149,6 @@ class Matcher:
                 empfehlung = "Prüfen"
                 pruefen = "Ja"
 
-            if medium_status == "technisch_nicht_erreichbar":
-                change_flags.append("Medium technisch nicht erreichbar")
-                empfehlung = "Erneut prüfen"
-                pruefen = "Ja"
             if medium_status == "wahrscheinlich_nicht_mehr_aktiv":
                 change_flags.append("Medium wahrscheinlich nicht mehr aktiv")
                 empfehlung = "Mediumstatus prüfen"
@@ -160,7 +185,7 @@ class Matcher:
                     "kommentar": "",
                 }
             )
-        return rows
+        return rows, not_scanned_rows
 
     # Backward-compatible method used by older flow/tests.
     def match(self, parsed_data: dict[str, list[dict]]) -> dict[str, list[dict]]:
