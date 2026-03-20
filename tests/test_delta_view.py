@@ -22,7 +22,15 @@ class StubMatcher(Matcher):
                 "email": "anna.muster@handelsblatt.com",
                 "telefon": "+49 30 111",
                 "ressort": "Finanzen",
-            }
+            },
+            {
+                "medium": "NichtGescannt Medium",
+                "vorname": "Peter",
+                "nachname": "Beispiel",
+                "email": "peter.beispiel@example.com",
+                "telefon": "+49 30 222",
+                "ressort": "Politik",
+            },
         ]
 
 
@@ -31,9 +39,14 @@ class DeltaViewTests(unittest.TestCase):
         self.matcher = StubMatcher()
         self.diff_engine = DiffEngine()
 
-    def _first_row(self, structured):
-        rows = self.matcher.build_delta_inputs(structured)
+    def _rows(self, structured, scan_scope_media=None):
+        rows, not_scanned = self.matcher.build_delta_inputs(structured, scan_scope_media=scan_scope_media)
         delta = self.diff_engine.build_delta_rows(rows)
+        not_scanned_delta = self.diff_engine.build_unscanned_rows(not_scanned)
+        return delta, not_scanned_delta
+
+    def _first_row(self, structured, scan_scope_media=None):
+        delta, _ = self._rows(structured, scan_scope_media=scan_scope_media)
         return delta[0]
 
     def test_official_hit_confirms_journalist(self):
@@ -44,7 +57,8 @@ class DeltaViewTests(unittest.TestCase):
                     "industry_hints": [],
                     "medium_status": "ok",
                 }
-            }
+            },
+            scan_scope_media={"Handelsblatt"},
         )
         self.assertEqual(row["Im_Web_gefunden"], "Ja")
         self.assertIn("Journalist bei Medium bestätigt", row["Was_ist_anders"])
@@ -58,7 +72,8 @@ class DeltaViewTests(unittest.TestCase):
                     "industry_hints": [{"journalist": "Anna Muster", "source": "kress", "hint_type": "Branchenquelle meldet Wechsel", "detail": "..."}],
                     "medium_status": "ok",
                 },
-            }
+            },
+            scan_scope_media={"Handelsblatt"},
         )
         self.assertEqual(row["Externer_Hinweis"], "Wechsel in Branchenquelle gemeldet")
         self.assertIn("wahrscheinlicher Medienwechsel", row["Was_ist_anders"])
@@ -76,7 +91,8 @@ class DeltaViewTests(unittest.TestCase):
                     "industry_hints": [{"journalist": "Anna Muster", "source": "turi2", "hint_type": "Branchenquelle meldet Wechsel", "detail": "..."}],
                     "medium_status": "ok",
                 },
-            }
+            },
+            scan_scope_media={"Handelsblatt"},
         )
         self.assertEqual(row["Externer_Hinweis"], "Widerspruch zwischen offizieller Quelle und Branchenquelle")
         self.assertEqual(row["Pruefen"], "Ja")
@@ -85,17 +101,34 @@ class DeltaViewTests(unittest.TestCase):
         row = self._first_row(
             {
                 "Handelsblatt": {"official_contacts": [], "industry_hints": [], "medium_status": "technisch_nicht_erreichbar"}
-            }
+            },
+            scan_scope_media={"Handelsblatt"},
         )
-        self.assertIn("Medium technisch nicht erreichbar", row["Was_ist_anders"])
+        self.assertIn("Medium_nicht_erreichbar", row["Was_ist_anders"])
+        self.assertNotIn("Journalist bei Medium nicht mehr gefunden", row["Was_ist_anders"])
 
     def test_medium_probably_inactive(self):
         row = self._first_row(
             {
                 "Handelsblatt": {"official_contacts": [], "industry_hints": [], "medium_status": "wahrscheinlich_nicht_mehr_aktiv"}
-            }
+            },
+            scan_scope_media={"Handelsblatt"},
         )
         self.assertIn("Medium wahrscheinlich nicht mehr aktiv", row["Was_ist_anders"])
+
+    def test_unscanned_medium_not_reported_as_missing_in_main_sheet(self):
+        main_rows, unscanned_rows = self._rows(
+            {
+                "Handelsblatt": {"official_contacts": [], "industry_hints": [], "medium_status": "ok"},
+            },
+            scan_scope_media={"Handelsblatt"},
+        )
+        self.assertEqual(len(main_rows), 1)
+        self.assertEqual(main_rows[0]["Medium"], "Handelsblatt")
+        self.assertTrue(all(row["Medium"] != "NichtGescannt Medium" for row in main_rows))
+        self.assertEqual(len(unscanned_rows), 1)
+        self.assertEqual(unscanned_rows[0]["Medium"], "NichtGescannt Medium")
+        self.assertIn("Nicht im aktuellen Scan-Scope", unscanned_rows[0]["Was_ist_anders"])
 
 
 if __name__ == "__main__":

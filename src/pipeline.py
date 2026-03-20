@@ -31,12 +31,18 @@ def run_pipeline(base_dir: Path) -> Path:
     updater = Updater(master_file, base_dir / "backups")
 
     raw = crawler.crawl()
+    scan_scope_media = {
+        medium
+        for medium, infos in raw.items()
+        if any(getattr(info, "source_type", "") == "official_medium" for info in infos)
+    }
     structured = parser.parse_structured(raw)
-    matched_rows = matcher.build_delta_inputs(structured)
+    matched_rows, not_scanned_master_rows = matcher.build_delta_inputs(structured, scan_scope_media=scan_scope_media)
     delta_rows = diff_engine.build_delta_rows(matched_rows)
+    unscanned_rows = diff_engine.build_unscanned_rows(not_scanned_master_rows)
 
     _update_plan = updater.prepare(approved_changes={"delta": delta_rows})
-    report_path = reporter.write(delta_rows, crawl_info=raw)
+    report_path = reporter.write(delta_rows, crawl_info=raw, unscanned_rows=unscanned_rows)
     return report_path
 
 

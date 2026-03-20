@@ -30,7 +30,13 @@ class Reporter:
     def __init__(self, reports_dir: Path) -> None:
         self.reports_dir = reports_dir
 
-    def write(self, delta_rows: list[dict], crawl_info: dict[str, list[object]], technical_rows: list[dict] | None = None) -> Path:
+    def write(
+        self,
+        delta_rows: list[dict],
+        crawl_info: dict[str, list[object]],
+        technical_rows: list[dict] | None = None,
+        unscanned_rows: list[dict] | None = None,
+    ) -> Path:
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         report_path = self.reports_dir / f"scan_{timestamp}.xlsx"
@@ -42,6 +48,11 @@ class Reporter:
             else:
                 main_df = main_df.reindex(columns=MAIN_COLUMNS)
             main_df.to_excel(writer, sheet_name="Aenderungen_Master_vs_Web", index=False)
+
+            optional_unscanned = unscanned_rows or []
+            if optional_unscanned:
+                unscanned_df = pd.DataFrame(optional_unscanned).reindex(columns=MAIN_COLUMNS)
+                unscanned_df.to_excel(writer, sheet_name="Nicht_gepruefte_Master_Medien", index=False)
 
             tech_rows = technical_rows or []
             if not tech_rows:

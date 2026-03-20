@@ -37,6 +37,27 @@ class DiffEngine:
             )
         return output
 
+    def build_unscanned_rows(self, unmatched_master_rows: list[dict]) -> list[dict]:
+        output: list[dict] = []
+        for row in unmatched_master_rows:
+            output.append(
+                {
+                    "Medium": row.get("medium", ""),
+                    "Journalist": row.get("journalist", ""),
+                    "Im_Master": row.get("im_master", "Ja"),
+                    "Im_Web_gefunden": row.get("im_web_gefunden", ""),
+                    "Externer_Hinweis": row.get("externer_hinweis", ""),
+                    "Was_ist_anders": row.get("was_ist_anders", "Nicht im aktuellen Scan-Scope"),
+                    "Alter_Stand": row.get("alter_stand", ""),
+                    "Neuer_Stand": row.get("neuer_stand", ""),
+                    "Quelle": row.get("quelle", ""),
+                    "Empfohlene_Aktion": row.get("empfohlene_aktion", "Keine Aktion"),
+                    "Pruefen": row.get("pruefen", "Nein"),
+                    "Kommentar": row.get("kommentar", ""),
+                }
+            )
+        return output
+
     def compare(self, current: dict[str, list[dict]], previous: dict[str, list[dict]]) -> dict[str, DiffResult]:
         diffs: dict[str, DiffResult] = {}
         for medium in sorted(set(current) | set(previous)):
