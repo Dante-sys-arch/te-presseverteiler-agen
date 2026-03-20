@@ -9,6 +9,8 @@ import csv
 import pandas as pd
 from rapidfuzz import fuzz
 
+from validator import SourceCoverageAssessor
+
 
 @dataclass(frozen=True)
 class MandateRule:
@@ -22,6 +24,27 @@ class Matcher:
     def __init__(self, mapping_file: Path, master_file: Path) -> None:
         self.mapping_file = mapping_file
         self.master_file = master_file
+        self.coverage_assessor = SourceCoverageAssessor()
+
+    def _compose_external_hint(self, hint_matches: list[dict]) -> str:
+        if not hint_matches:
+            return "kein externer Hinweis"
+        sources = sorted({str(h.get("source", "")).strip() for h in hint_matches if str(h.get("source", "")).strip()})
+        source_label = ", ".join(sources) if sources else "Branchenquelle"
+        return f"Plausibler Wechselhinweis aus {source_label}"
+
+    def _recommended_action(self, change_flags: list[str]) -> str:
+        if "Medium nicht erreichbar" in change_flags:
+            return "spaeter erneut pruefen oder URL korrigieren"
+        if "Journalist bei Medium nicht mehr gefunden" in change_flags:
+            return "deaktivieren oder manuell pruefen"
+        if "Auf aktueller Quelle nicht belegt" in change_flags:
+            return "manuell pruefen"
+        if "Weitere Quelle pruefen" in change_flags:
+            return "weitere Quelle pruefen"
+        if "Wahrscheinlicher Medienwechsel" in change_flags:
+            return "weitere Quelle pruefen"
+        return "Keine Aktion"
 
     def load_rules(self) -> list[MandateRule]:
         if not self.mapping_file.exists():
@@ -120,54 +143,59 @@ class Matcher:
             payload = parsed_structured.get(medium, {})
             official = payload.get("official_contacts", [])
             medium_status = payload.get("medium_status", "ok")
+            official_source_stats = payload.get("official_source_stats", {})
             hint_matches = self._find_industry_hints(master, all_industry_hints)
             official_match = self._find_official_match(master, official)
+            coverage = self.coverage_assessor.assess(
+                medium_status=medium_status,
+                source_stats=official_source_stats,
+                has_external_hint=bool(hint_matches),
+            )
 
             change_flags: list[str] = []
-            externer_hinweis = "kein externer Hinweis"
+            externer_hinweis = self._compose_external_hint(hint_matches)
             pruefen = "Nein"
-            empfehlung = "Keine Aktion"
             im_web = "Nein"
             neuer_stand = ""
+            kommentar = coverage.comment
 
             if medium_status == "technisch_nicht_erreichbar":
-                change_flags.append("Medium_nicht_erreichbar")
-                empfehlung = "Erneut prüfen"
+                change_flags.append("Medium nicht erreichbar")
                 pruefen = "Ja"
                 im_web = "Unbekannt"
+                kommentar = "Quelle technisch nicht erreichbar"
             elif official_match:
                 im_web = "Ja"
-                change_flags.append("Journalist bei Medium bestätigt")
-                for field, label in (("email", "E-Mail geändert"), ("telefon", "Telefon geändert"), ("rolle", "Ressort geändert")):
+                change_flags.append("Journalist bestaetigt")
+                for field, label in (("email", "E-Mail geaendert"), ("telefon", "Telefon geaendert"), ("rolle", "Ressort geaendert")):
                     old = (master.get(field if field != "rolle" else "ressort", "") or "").strip().lower()
                     new = (official_match.get(field, "") or "").strip().lower()
                     if old and new and old != new:
                         change_flags.append(label)
                 neuer_stand = f"{official_match.get('email', '')} | {official_match.get('telefon', '')} | {official_match.get('rolle', '')}"
+                kommentar = "offizielle Quelle bestaetigt Abweichung" if len(change_flags) > 1 else "offizielle Quelle bestaetigt Kontakt"
             else:
-                change_flags.append("Journalist bei Medium nicht mehr gefunden")
-                empfehlung = "Prüfen"
-                pruefen = "Ja"
-
-            if medium_status == "wahrscheinlich_nicht_mehr_aktiv":
-                change_flags.append("Medium wahrscheinlich nicht mehr aktiv")
-                empfehlung = "Mediumstatus prüfen"
-                pruefen = "Ja"
-
-            if hint_matches:
-                externer_hinweis = "Wechsel in Branchenquelle gemeldet"
-                hint_sources = sorted({h.get("source", "") for h in hint_matches if h.get("source")})
-                if official_match:
-                    externer_hinweis = "Widerspruch zwischen offizieller Quelle und Branchenquelle"
+                if hint_matches and coverage.level != "hoch":
+                    change_flags.append("Wahrscheinlicher Medienwechsel")
                     pruefen = "Ja"
-                    empfehlung = "Widerspruch klären"
-                elif not official_match:
-                    change_flags.append("wahrscheinlicher Medienwechsel")
-                    empfehlung = "Kontakt manuell verifizieren"
+                elif coverage.level == "hoch":
+                    change_flags.append("Journalist bei Medium nicht mehr gefunden")
                     pruefen = "Ja"
-                source = ", ".join(hint_sources)
-            else:
-                source = "offizielle Mediumsquelle"
+                    kommentar = "offizielle Quelle bestaetigt Abweichung"
+                elif coverage.level == "mittel":
+                    change_flags.append("Auf aktueller Quelle nicht belegt")
+                    pruefen = "Ja"
+                else:
+                    change_flags.append("Weitere Quelle pruefen")
+                    pruefen = "Ja"
+
+            if hint_matches and official_match:
+                change_flags.append("Weitere Quelle pruefen")
+                pruefen = "Ja"
+                kommentar = "offizielle Quelle bestaetigt Kontakt, externer Hinweis abweichend"
+
+            source = "offizielle Mediumsquelle" if not hint_matches else ", ".join(sorted({h.get("source", "") for h in hint_matches if h.get("source")}))
+            empfehlung = self._recommended_action(change_flags)
 
             rows.append(
                 {
@@ -182,7 +210,7 @@ class Matcher:
                     "quelle": source,
                     "empfohlene_aktion": empfehlung,
                     "pruefen": pruefen,
-                    "kommentar": "",
+                    "kommentar": kommentar,
                 }
             )
         return rows, not_scanned_rows
