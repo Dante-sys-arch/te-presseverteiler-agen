@@ -5,13 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 ALLOWED_CHANGE_TYPES = {
-    "Journalist bestaetigt",
-    "Journalist bei Medium nicht mehr gefunden",
-    "Auf offizieller Quelle nicht belegt",
-    "Weitere Quelle pruefen",
+    "offiziell bestaetigt",
+    "auf offiziellen Seiten nicht bestaetigt",
+    "bei anderem Medium gefunden",
+    "Wechsel in Branchenquelle gemeldet",
+    "nur schwacher Webhinweis",
     "Medium nicht erreichbar",
-    "Medium wahrscheinlich nicht mehr aktiv",
-    "Wahrscheinlicher Medienwechsel",
+    "weitere Pruefung noetig",
     "E-Mail geaendert",
     "Telefon geaendert",
     "Ressort geaendert",

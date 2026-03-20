@@ -23,6 +23,8 @@ def run_pipeline(base_dir: Path) -> Path:
         base_dir / "snapshots",
         source_rules_file=config_dir / "source_rules.yaml",
         secondary_sources_file=config_dir / "secondary_sources.yaml",
+        medium_profiles_file=config_dir / "medium_profiles.yaml",
+        master_file=master_file,
     )
     parser = Parser()
     matcher = Matcher(config_dir / "mandate_mapping.csv", master_file)
