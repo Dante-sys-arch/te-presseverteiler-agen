@@ -18,6 +18,10 @@ ROLE_HINT_RE = re.compile(r"(Redaktion|Chefredaktion|Ressort|Wirtschaft|Politik|
 CHANGE_HINT_RE = re.compile(r"(wechselt|neu bei|verl[äa]sst|geht zu|heuert an|beruft|verl[äa]sst das medium)", re.IGNORECASE)
 INACTIVE_HINT_RE = re.compile(r"(eingestellt|nicht mehr aktiv|insolvenz|geschlossen)", re.IGNORECASE)
 NEW_EMPLOYER_RE = re.compile(r"(neu bei|geht zu|wechselt zu|neuer arbeitgeber)\s+([A-ZÄÖÜ][^,.;:]{2,80})", re.IGNORECASE)
+EMPLOYER_CONTEXT_RE = re.compile(
+    r"(?:bei|arbeitet bei|taetig bei|jetzt bei|ist bei|joined|joining)\s+([A-ZÄÖÜ][^,.;:]{2,80})",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -133,9 +137,10 @@ class Parser:
                 dedup[key] = contact
         return list(dedup.values())
 
-    def _extract_industry_hints(self, text: str, source: str) -> list[IndustryHint]:
+    def _extract_industry_hints(self, text: str, source: str, source_type: str = "", journalist: str = "") -> list[IndustryHint]:
         hints: list[IndustryHint] = []
         lines = [line.strip() for line in re.split(r"[\n\r]+", text) if line.strip()]
+        fallback_journalist = str(journalist or "").strip()
         for line in lines:
             if CHANGE_HINT_RE.search(line):
                 names = [f"{f} {l}" for f, l in NAME_RE.findall(line)]
@@ -148,6 +153,20 @@ class Parser:
                             hint_type="Branchenquelle meldet Wechsel",
                             detail=line[:300],
                             new_medium_hint=(employer_match.group(2).strip() if employer_match else ""),
+                        )
+                    )
+            elif source_type in {"linkedin_source", "open_web"}:
+                names = [f"{f} {l}" for f, l in NAME_RE.findall(line)]
+                journalist_name = names[0] if names else fallback_journalist
+                employer_match = EMPLOYER_CONTEXT_RE.search(line)
+                if journalist_name and employer_match:
+                    hints.append(
+                        IndustryHint(
+                            journalist=journalist_name,
+                            source=source,
+                            hint_type="Externes Profil mit Arbeitgeber-Hinweis",
+                            detail=line[:300],
+                            new_medium_hint=employer_match.group(1).strip(),
                         )
                     )
             elif INACTIVE_HINT_RE.search(line):
@@ -228,7 +247,14 @@ class Parser:
                         }
                     )
                 elif source_type == "industry_source":
-                    industry_hints.extend(self._extract_industry_hints(text, getattr(snapshot, "source_name", key)))
+                    industry_hints.extend(
+                        self._extract_industry_hints(
+                            text,
+                            getattr(snapshot, "source_name", key),
+                            source_type=source_type,
+                            journalist=getattr(snapshot, "journalist", ""),
+                        )
+                    )
                     industry_documents.append(
                         {
                             "url": getattr(snapshot, "url", ""),
@@ -237,7 +263,14 @@ class Parser:
                         }
                     )
                 elif source_type in {"linkedin_source", "open_web"}:
-                    industry_hints.extend(self._extract_industry_hints(text, getattr(snapshot, "source_name", source_type)))
+                    industry_hints.extend(
+                        self._extract_industry_hints(
+                            text,
+                            getattr(snapshot, "source_name", source_type),
+                            source_type=source_type,
+                            journalist=getattr(snapshot, "journalist", ""),
+                        )
+                    )
                     industry_documents.append(
                         {
                             "url": getattr(snapshot, "url", ""),
