@@ -29,6 +29,7 @@ class Matcher:
         self.master_file = master_file
         self.coverage_assessor = SourceCoverageAssessor()
         self._matching_detail_rows: list[dict] = []
+        self._web_research_detail_rows: list[dict] = []
         self._benchmark_media = {
             self._normalize_name(name)
             for name in (
@@ -72,6 +73,17 @@ class Matcher:
         sources = sorted({str(h.get("source", "")).strip() for h in hint_matches if str(h.get("source", "")).strip()})
         source_label = ", ".join(sources) if sources else "Branchenquelle"
         return f"Plausibler Wechselhinweis aus {source_label}"
+
+    def _find_documents_with_name(self, master_name: str, documents: list[dict], source_type: str) -> list[dict]:
+        variants = self._name_variants(master_name)
+        found: list[dict] = []
+        for doc in documents:
+            if str(doc.get("source_type", "")) != source_type:
+                continue
+            haystack = self._normalize_name(doc.get("text", ""))
+            if any(variant in haystack for variant in variants if variant):
+                found.append(doc)
+        return found
 
     def _normalize_name(self, value: str) -> str:
         txt = unicodedata.normalize("NFKD", str(value or "").strip().lower())
@@ -227,6 +239,12 @@ class Matcher:
             return "weitere Quelle pruefen"
         if "Wahrscheinlicher Medienwechsel" in change_flags:
             return "manuell pruefen"
+        if "Bei anderem Medium gefunden" in change_flags:
+            return "Medium im Master aktualisieren"
+        if "Nur schwacher Hinweis" in change_flags:
+            return "manuell pruefen"
+        if "Nichts Belastbares gefunden" in change_flags:
+            return "manuell pruefen"
         if "Weitere Quelle pruefen" in change_flags:
             return "weitere Quelle pruefen"
         return "Keine Aktion"
@@ -319,6 +337,7 @@ class Matcher:
         scoped_media = scan_scope_media
         rows: list[dict] = []
         self._matching_detail_rows = []
+        self._web_research_detail_rows = []
         not_scanned_rows: list[dict] = []
         for medium, medium_master_contacts in master_by_medium.items():
             if scoped_media is not None and medium not in scoped_media:
@@ -346,6 +365,7 @@ class Matcher:
             official_documents = payload.get("official_documents", [])
             medium_status = payload.get("medium_status", "ok")
             official_source_stats = payload.get("official_source_stats", {})
+            research_stages = payload.get("research_stages", {}) or {}
             has_expected_contact_source = int(official_source_stats.get("contact_expected_sources", 0) or 0) > 0
 
             coverage = self.coverage_assessor.assess(
@@ -430,6 +450,17 @@ class Matcher:
                     has_external_hint=bool(hint_matches),
                 )
                 industry_mentions = self._industry_mentions(self._name(master), payload.get("industry_documents", []))
+                linkedin_mentions = self._find_documents_with_name(self._name(master), payload.get("industry_documents", []), "linkedin_source")
+                open_web_mentions = self._find_documents_with_name(self._name(master), payload.get("industry_documents", []), "open_web")
+                required_stages = (
+                    "offizielle_mediumsseiten",
+                    "domain_interne_suche",
+                    "branchenquelle",
+                    "linkedin",
+                    "allgemeine_websuche",
+                )
+                cascade_state_known = bool(research_stages)
+                cascade_complete = cascade_state_known and all(bool(research_stages.get(stage, False)) for stage in required_stages)
 
                 change_flags: list[str] = []
                 externer_hinweis = self._compose_external_hint(hint_matches)
@@ -437,6 +468,10 @@ class Matcher:
                 im_web = "Nein"
                 neuer_stand = ""
                 kommentar = coverage.comment
+                linkedin_hinweis = "Ja" if linkedin_mentions else "Nein"
+                neues_medium_hinweis = next((str(h.get("new_medium_hint", "")).strip() for h in hint_matches if str(h.get("new_medium_hint", "")).strip()), "")
+                gefunden_bei = medium if (reliable_evidence or match_score >= 65) else ""
+                quellenbasis = "offizielle Mediumseiten" if (reliable_evidence or match_score >= 65) else "kaskadierte Webrecherche"
 
                 if reliable_evidence or match_score >= 85:
                     im_web = "Ja"
@@ -468,14 +503,22 @@ class Matcher:
                         change_flags.append("Manuell pruefen")
                         pruefen = "Ja"
                         kommentar = f"teilweise passend ({match_score}) - {match_reason}"
-                    elif hint_matches and coverage.level != "hoch":
+                    elif hint_matches:
                         change_flags.append("Wahrscheinlicher Medienwechsel")
                         pruefen = "Ja"
                         kommentar = "Branchenquelle meldet Wechsel"
+                        if neues_medium_hinweis:
+                            change_flags.append("Bei anderem Medium gefunden")
+                            gefunden_bei = neues_medium_hinweis
                     elif coverage.level == "hoch":
-                        change_flags.append("Journalist bei Medium nicht mehr gefunden")
-                        pruefen = "Ja"
-                        kommentar = "mehrere relevante offizielle Seiten ohne Treffer"
+                        if cascade_complete or not cascade_state_known:
+                            change_flags.append("Journalist bei Medium nicht mehr gefunden")
+                            pruefen = "Ja"
+                            kommentar = "komplette Recherche-Kaskade ohne Treffer" if cascade_complete else "mehrere relevante offizielle Seiten ohne Treffer"
+                        else:
+                            change_flags.append("Auf offiziellen Seiten nicht bestaetigt")
+                            pruefen = "Ja"
+                            kommentar = "Kaskade unvollstaendig"
                     elif has_expected_contact_source and coverage.level == "mittel":
                         change_flags.append("Auf offiziellen Seiten nicht bestaetigt")
                         pruefen = "Ja"
@@ -485,9 +528,9 @@ class Matcher:
                         pruefen = "Ja"
                         kommentar = "mehrere offizielle Seiten geprueft, keine belastbare Aussage"
                     else:
-                        change_flags.append("Auf offiziellen Seiten nicht bestaetigt")
+                        change_flags.append("Nur schwacher Hinweis")
                         pruefen = "Ja"
-                        kommentar = "nur Impressum vorhanden"
+                        kommentar = "nur schwacher Hinweis aus offizieller Recherche"
 
                 if industry_mentions and not hint_matches and not official_match:
                     if "Weitere Quelle pruefen" not in change_flags:
@@ -495,6 +538,25 @@ class Matcher:
                     pruefen = "Ja"
                     externer_hinweis = "Namensnennung in Branchenquelle"
                     kommentar = "Branchenquelle meldet Wechsel"
+
+                if linkedin_mentions and not reliable_evidence and not hint_matches:
+                    if "Nur schwacher Hinweis" not in change_flags:
+                        change_flags.append("Nur schwacher Hinweis")
+                    pruefen = "Ja"
+                    kommentar = "LinkedIn-Hinweis ohne offizielle Bestaetigung"
+                    quellenbasis = "LinkedIn + Websuche"
+
+                if open_web_mentions and not reliable_evidence and not hint_matches and not linkedin_mentions:
+                    if "Nur schwacher Hinweis" not in change_flags:
+                        change_flags.append("Nur schwacher Hinweis")
+                    pruefen = "Ja"
+                    kommentar = "Nur allgemeine Websuche mit Namensnennung"
+
+                if not reliable_evidence and not hint_matches and not linkedin_mentions and not open_web_mentions and cascade_complete:
+                    change_flags = ["Nichts Belastbares gefunden"]
+                    pruefen = "Ja"
+                    kommentar = "Komplette Recherche-Kaskade ohne plausiblen Treffer"
+                    quellenbasis = "vollstaendige Recherche-Kaskade"
 
                 if hint_matches and reliable_evidence:
                     if "Weitere Quelle pruefen" not in change_flags:
@@ -520,6 +582,10 @@ class Matcher:
                 source_parts = ["official_medium"]
                 if hint_matches or industry_mentions:
                     source_parts.append("industry_source")
+                if linkedin_mentions:
+                    source_parts.append("linkedin")
+                if open_web_mentions:
+                    source_parts.append("open_web")
                 source = ", ".join(dict.fromkeys(source_parts))
                 empfehlung = self._recommended_action(change_flags)
                 rows.append(
@@ -536,12 +602,40 @@ class Matcher:
                         "empfohlene_aktion": empfehlung,
                         "pruefen": pruefen,
                         "kommentar": kommentar,
+                        "webrecherche_durchgefuehrt": "Ja" if cascade_complete else "Teilweise",
+                        "linkedin_hinweis": linkedin_hinweis,
+                        "neues_medium_hinweis": neues_medium_hinweis,
+                        "gefunden_bei": gefunden_bei,
+                        "quellenbasis": quellenbasis,
                     }
                 )
+                for stage, details in (
+                    ("offizielle_mediumsseiten", official_documents),
+                    ("branchenquelle", industry_mentions),
+                    ("linkedin", linkedin_mentions),
+                    ("allgemeine_websuche", open_web_mentions),
+                ):
+                    hit = bool(details)
+                    source_label = ", ".join(sorted({str(d.get("source_name", "")) for d in details if str(d.get("source_name", ""))})) or stage
+                    self._web_research_detail_rows.append(
+                        {
+                            "Medium": medium,
+                            "Journalist": self._name(master),
+                            "Suchstufe": stage,
+                            "Quelle": source_label,
+                            "Treffer_ja_nein": "Ja" if hit else "Nein",
+                            "Treffertext_kurz": (str(details[0].get("text", ""))[:180] if hit else ""),
+                            "Bewertung": "hoch" if stage == "offizielle_mediumsseiten" else ("mittel" if stage in {"branchenquelle", "linkedin"} else "niedrig"),
+                            "Kommentar": kommentar if not hit else "",
+                        }
+                    )
         return rows, not_scanned_rows
 
     def get_matching_detail_rows(self) -> list[dict]:
         return list(self._matching_detail_rows)
+
+    def get_web_research_detail_rows(self) -> list[dict]:
+        return list(self._web_research_detail_rows)
 
     def match(self, parsed_data: dict[str, list[dict]]) -> dict[str, list[dict]]:
         return parsed_data

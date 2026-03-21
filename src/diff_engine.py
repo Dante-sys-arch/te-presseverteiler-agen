@@ -18,6 +18,9 @@ ALLOWED_CHANGE_TYPES = {
     "Telefon geaendert",
     "Ressort geaendert",
     "Nicht im aktuellen Scan-Scope",
+    "Bei anderem Medium gefunden",
+    "Nur schwacher Hinweis",
+    "Nichts Belastbares gefunden",
 }
 
 
@@ -51,6 +54,11 @@ class DiffEngine:
                     "Alter_Stand": row.get("alter_stand", ""),
                     "Neuer_Stand": row.get("neuer_stand", ""),
                     "Quelle": row.get("quelle", ""),
+                    "Webrecherche_durchgefuehrt": row.get("webrecherche_durchgefuehrt", ""),
+                    "LinkedIn_Hinweis": row.get("linkedin_hinweis", ""),
+                    "Neues_Medium_Hinweis": row.get("neues_medium_hinweis", ""),
+                    "Gefunden_bei": row.get("gefunden_bei", ""),
+                    "Quellenbasis": row.get("quellenbasis", ""),
                     "Empfohlene_Aktion": row.get("empfohlene_aktion", "Prüfen"),
                     "Pruefen": row.get("pruefen", "Ja"),
                     "Kommentar": row.get("kommentar", ""),
@@ -72,6 +80,11 @@ class DiffEngine:
                     "Alter_Stand": row.get("alter_stand", ""),
                     "Neuer_Stand": row.get("neuer_stand", ""),
                     "Quelle": row.get("quelle", ""),
+                    "Webrecherche_durchgefuehrt": row.get("webrecherche_durchgefuehrt", ""),
+                    "LinkedIn_Hinweis": row.get("linkedin_hinweis", ""),
+                    "Neues_Medium_Hinweis": row.get("neues_medium_hinweis", ""),
+                    "Gefunden_bei": row.get("gefunden_bei", ""),
+                    "Quellenbasis": row.get("quellenbasis", ""),
                     "Empfohlene_Aktion": row.get("empfohlene_aktion", "Keine Aktion"),
                     "Pruefen": row.get("pruefen", "Nein"),
                     "Kommentar": row.get("kommentar", ""),

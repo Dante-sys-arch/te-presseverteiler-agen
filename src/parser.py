@@ -17,6 +17,7 @@ PHONE_RE = re.compile(r"(?:\+|\(?\d)[\d\s\-/().]{5,}\d")
 ROLE_HINT_RE = re.compile(r"(Redaktion|Chefredaktion|Ressort|Wirtschaft|Politik|Finanzen|Editor|Team)", re.IGNORECASE)
 CHANGE_HINT_RE = re.compile(r"(wechselt|neu bei|verl[äa]sst|geht zu|heuert an|beruft|verl[äa]sst das medium)", re.IGNORECASE)
 INACTIVE_HINT_RE = re.compile(r"(eingestellt|nicht mehr aktiv|insolvenz|geschlossen)", re.IGNORECASE)
+NEW_EMPLOYER_RE = re.compile(r"(neu bei|geht zu|wechselt zu|neuer arbeitgeber)\s+([A-ZÄÖÜ][^,.;:]{2,80})", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,7 @@ class IndustryHint:
     source: str = ""
     hint_type: str = ""
     detail: str = ""
+    new_medium_hint: str = ""
 
 
 class Parser:
@@ -138,12 +140,14 @@ class Parser:
             if CHANGE_HINT_RE.search(line):
                 names = [f"{f} {l}" for f, l in NAME_RE.findall(line)]
                 for name in names or [""]:
+                    employer_match = NEW_EMPLOYER_RE.search(line)
                     hints.append(
                         IndustryHint(
                             journalist=name,
                             source=source,
                             hint_type="Branchenquelle meldet Wechsel",
                             detail=line[:300],
+                            new_medium_hint=(employer_match.group(2).strip() if employer_match else ""),
                         )
                     )
             elif INACTIVE_HINT_RE.search(line):
@@ -232,6 +236,17 @@ class Parser:
                             "text": text[:15000],
                         }
                     )
+                elif source_type in {"linkedin_source", "open_web"}:
+                    industry_hints.extend(self._extract_industry_hints(text, getattr(snapshot, "source_name", source_type)))
+                    industry_documents.append(
+                        {
+                            "url": getattr(snapshot, "url", ""),
+                            "source_name": getattr(snapshot, "source_name", source_type),
+                            "source_type": source_type,
+                            "journalist": getattr(snapshot, "journalist", ""),
+                            "text": text[:15000],
+                        }
+                    )
 
             if official_total_sources and official_reachable_sources == 0:
                 official_status = "technisch_nicht_erreichbar"
@@ -239,6 +254,30 @@ class Parser:
                 official_status = "wahrscheinlich_nicht_mehr_aktiv"
             elif technical_failures and official_reachable_sources == 0:
                 official_status = "technisch_nicht_erreichbar"
+
+            cascaded_stages = {
+                "offizielle_mediumsseiten": False,
+                "domain_interne_suche": False,
+                "branchenquelle": False,
+                "linkedin": False,
+                "allgemeine_websuche": False,
+            }
+            for snapshot in snapshots:
+                source_type = getattr(snapshot, "source_type", "")
+                source_name = str(getattr(snapshot, "source_name", "")).lower()
+                search_stage = getattr(snapshot, "search_stage", "")
+                if source_type == "official_medium":
+                    cascaded_stages["offizielle_mediumsseiten"] = True
+                    if source_name in {"interne_suche", "autorenseite", "autorenseiten", "ressortseite", "ressortseiten", "team", "redaktion"}:
+                        cascaded_stages["domain_interne_suche"] = True
+                if source_type == "industry_source":
+                    cascaded_stages["branchenquelle"] = True
+                if source_type == "linkedin_source":
+                    cascaded_stages["linkedin"] = True
+                if source_type == "open_web":
+                    cascaded_stages["allgemeine_websuche"] = True
+                if search_stage in cascaded_stages:
+                    cascaded_stages[search_stage] = True
 
             structured[key] = {
                 "official_contacts": [asdict(c) for c in official_contacts],
@@ -255,6 +294,7 @@ class Parser:
                     "contact_expected_sources": contact_expected_sources,
                 },
                 "source_diagnostics": source_diagnostics,
+                "research_stages": cascaded_stages,
             }
         return structured
 

@@ -271,6 +271,76 @@ class DeltaViewTests(unittest.TestCase):
         self.assertIn("Journalist bestaetigt", row["Was_ist_anders"])
         self.assertEqual(row["Kommentar"], "Autorenprofil gefunden")
 
+    def test_journalist_found_at_other_medium_via_web_hint(self):
+        row = self._first_row(
+            {
+                "Handelsblatt": {
+                    "official_contacts": [],
+                    "official_documents": [],
+                    "industry_hints": [{"journalist": "Anna Muster", "source": "kress", "hint_type": "Branchenquelle meldet Wechsel", "detail": "Anna Muster geht zu Neue Zeitung", "new_medium_hint": "Neue Zeitung"}],
+                    "industry_documents": [{"source_type": "industry_source", "source_name": "kress", "text": "Anna Muster geht zu Neue Zeitung"}],
+                    "medium_status": "ok",
+                    "official_source_stats": {"total_sources": 3, "reachable_sources": 3, "has_impressum": True, "has_editorial_pages": True},
+                    "research_stages": {"offizielle_mediumsseiten": True, "domain_interne_suche": True, "branchenquelle": True, "linkedin": True, "allgemeine_websuche": True},
+                }
+            },
+            scan_scope_media={"Handelsblatt"},
+        )
+        self.assertIn("Bei anderem Medium gefunden", row["Was_ist_anders"])
+        self.assertEqual(row["Gefunden_bei"], "Neue Zeitung")
+
+    def test_linkedin_only_results_in_weak_hint(self):
+        row = self._first_row(
+            {
+                "Handelsblatt": {
+                    "official_contacts": [],
+                    "official_documents": [],
+                    "industry_hints": [],
+                    "industry_documents": [{"source_type": "linkedin_source", "source_name": "LinkedIn", "text": "Anna Muster | Senior Editor"}],
+                    "medium_status": "ok",
+                    "official_source_stats": {"total_sources": 3, "reachable_sources": 3, "has_impressum": True, "has_editorial_pages": True},
+                    "research_stages": {"offizielle_mediumsseiten": True, "domain_interne_suche": True, "branchenquelle": True, "linkedin": True, "allgemeine_websuche": True},
+                }
+            },
+            scan_scope_media={"Handelsblatt"},
+        )
+        self.assertIn("Nur schwacher Hinweis", row["Was_ist_anders"])
+        self.assertEqual(row["LinkedIn_Hinweis"], "Ja")
+
+    def test_open_web_only_results_in_weak_hint(self):
+        row = self._first_row(
+            {
+                "Handelsblatt": {
+                    "official_contacts": [],
+                    "official_documents": [],
+                    "industry_hints": [],
+                    "industry_documents": [{"source_type": "open_web", "source_name": "Websuche", "text": "Anna Muster Journalist"}],
+                    "medium_status": "ok",
+                    "official_source_stats": {"total_sources": 3, "reachable_sources": 3, "has_impressum": True, "has_editorial_pages": True},
+                    "research_stages": {"offizielle_mediumsseiten": True, "domain_interne_suche": True, "branchenquelle": True, "linkedin": True, "allgemeine_websuche": True},
+                }
+            },
+            scan_scope_media={"Handelsblatt"},
+        )
+        self.assertIn("Nur schwacher Hinweis", row["Was_ist_anders"])
+
+    def test_no_reliable_hit_after_full_cascade(self):
+        row = self._first_row(
+            {
+                "Handelsblatt": {
+                    "official_contacts": [],
+                    "official_documents": [],
+                    "industry_hints": [],
+                    "industry_documents": [],
+                    "medium_status": "ok",
+                    "official_source_stats": {"total_sources": 3, "reachable_sources": 3, "has_impressum": True, "has_editorial_pages": True},
+                    "research_stages": {"offizielle_mediumsseiten": True, "domain_interne_suche": True, "branchenquelle": True, "linkedin": True, "allgemeine_websuche": True},
+                }
+            },
+            scan_scope_media={"Handelsblatt"},
+        )
+        self.assertIn("Nichts Belastbares gefunden", row["Was_ist_anders"])
+
     def test_no_other_medium_override_without_official_hit(self):
         row = self._first_row(
             {
