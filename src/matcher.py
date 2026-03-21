@@ -74,6 +74,54 @@ class Matcher:
         source_label = ", ".join(sources) if sources else "Branchenquelle"
         return f"Plausibler Wechselhinweis aus {source_label}"
 
+    def _infer_medium_from_text(self, text: str) -> str:
+        normalized = str(text or "").strip()
+        if not normalized:
+            return ""
+        patterns = [
+            r"(?:bei|arbeitet bei|taetig bei|jetzt bei|ist bei|joined|joining)\s+([A-ZÄÖÜ][\wÄÖÜäöüß&()./\- ]{2,80})",
+            r"(?:von|wechselte von)\s+[A-ZÄÖÜ][\wÄÖÜäöüß&()./\- ]{2,80}\s+(?:zu|to)\s+([A-ZÄÖÜ][\wÄÖÜäöüß&()./\- ]{2,80})",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, normalized, flags=re.IGNORECASE)
+            if match:
+                candidate = re.split(r"[,;|]", match.group(1))[0].strip()
+                candidate = re.sub(r"\s{2,}", " ", candidate)
+                if len(candidate) >= 3:
+                    return candidate
+        return ""
+
+    def _infer_medium_from_document(self, doc: dict) -> str:
+        return self._infer_medium_from_text(doc.get("text", ""))
+
+    def _same_medium(self, left: str, right: str) -> bool:
+        a = self._normalize_name(left)
+        b = self._normalize_name(right)
+        if not a or not b:
+            return False
+        return a == b or a in b or b in a or fuzz.ratio(a, b) >= 90
+
+    def _derive_new_medium_hint(
+        self,
+        hint_matches: list[dict],
+        linkedin_mentions: list[dict],
+        open_web_mentions: list[dict],
+        current_medium: str,
+    ) -> str:
+        candidates: list[str] = []
+        for hint in hint_matches:
+            value = str(hint.get("new_medium_hint", "")).strip()
+            if value:
+                candidates.append(value)
+        for doc in linkedin_mentions + open_web_mentions:
+            value = self._infer_medium_from_document(doc)
+            if value:
+                candidates.append(value)
+        for candidate in candidates:
+            if not self._same_medium(candidate, current_medium):
+                return candidate
+        return candidates[0] if candidates else ""
+
     def _find_documents_with_name(self, master_name: str, documents: list[dict], source_type: str) -> list[dict]:
         variants = self._name_variants(master_name)
         found: list[dict] = []
@@ -363,6 +411,7 @@ class Matcher:
             payload = parsed_structured.get(medium, {})
             official = payload.get("official_contacts", [])
             official_documents = payload.get("official_documents", [])
+            industry_documents = payload.get("industry_documents", [])
             medium_status = payload.get("medium_status", "ok")
             official_source_stats = payload.get("official_source_stats", {})
             research_stages = payload.get("research_stages", {}) or {}
@@ -379,6 +428,7 @@ class Matcher:
                 for hint in self._find_industry_hints(master, all_industry_hints)
             ]
             weak_medium_only = coverage.level == "niedrig" or (coverage.level == "mittel" and not has_expected_contact_source)
+            has_any_external_document = bool(industry_documents)
 
             if medium_status == "technisch_nicht_erreichbar":
                 rows.append(
@@ -418,7 +468,7 @@ class Matcher:
                 )
                 continue
 
-            if weak_medium_only and not official and not aggregated_hints:
+            if weak_medium_only and not official and not aggregated_hints and not has_any_external_document:
                 rows.append(
                     {
                         "medium": medium,
@@ -449,9 +499,9 @@ class Matcher:
                     source_stats=official_source_stats,
                     has_external_hint=bool(hint_matches),
                 )
-                industry_mentions = self._industry_mentions(self._name(master), payload.get("industry_documents", []))
-                linkedin_mentions = self._find_documents_with_name(self._name(master), payload.get("industry_documents", []), "linkedin_source")
-                open_web_mentions = self._find_documents_with_name(self._name(master), payload.get("industry_documents", []), "open_web")
+                industry_mentions = self._industry_mentions(self._name(master), industry_documents)
+                linkedin_mentions = self._find_documents_with_name(self._name(master), industry_documents, "linkedin_source")
+                open_web_mentions = self._find_documents_with_name(self._name(master), industry_documents, "open_web")
                 required_stages = (
                     "offizielle_mediumsseiten",
                     "domain_interne_suche",
@@ -469,7 +519,7 @@ class Matcher:
                 neuer_stand = ""
                 kommentar = coverage.comment
                 linkedin_hinweis = "Ja" if linkedin_mentions else "Nein"
-                neues_medium_hinweis = next((str(h.get("new_medium_hint", "")).strip() for h in hint_matches if str(h.get("new_medium_hint", "")).strip()), "")
+                neues_medium_hinweis = self._derive_new_medium_hint(hint_matches, linkedin_mentions, open_web_mentions, medium)
                 gefunden_bei = medium if (reliable_evidence or match_score >= 65) else ""
                 quellenbasis = "offizielle Mediumseiten" if (reliable_evidence or match_score >= 65) else "kaskadierte Webrecherche"
 
@@ -540,17 +590,33 @@ class Matcher:
                     kommentar = "Branchenquelle meldet Wechsel"
 
                 if linkedin_mentions and not reliable_evidence and not hint_matches:
-                    if "Nur schwacher Hinweis" not in change_flags:
-                        change_flags.append("Nur schwacher Hinweis")
                     pruefen = "Ja"
-                    kommentar = "LinkedIn-Hinweis ohne offizielle Bestaetigung"
                     quellenbasis = "LinkedIn + Websuche"
+                    if neues_medium_hinweis and not self._same_medium(neues_medium_hinweis, medium):
+                        change_flags = [flag for flag in change_flags if flag != "Nur schwacher Hinweis"]
+                        if "Wahrscheinlicher Medienwechsel" not in change_flags:
+                            change_flags.append("Wahrscheinlicher Medienwechsel")
+                        if "Bei anderem Medium gefunden" not in change_flags:
+                            change_flags.append("Bei anderem Medium gefunden")
+                        gefunden_bei = neues_medium_hinweis
+                        kommentar = "LinkedIn-Hinweis mit abweichendem Medium"
+                    else:
+                        if "Weitere Quelle pruefen" not in change_flags:
+                            change_flags.append("Weitere Quelle pruefen")
+                        kommentar = "LinkedIn-Hinweis ohne eindeutigen Medienwechsel"
 
                 if open_web_mentions and not reliable_evidence and not hint_matches and not linkedin_mentions:
-                    if "Nur schwacher Hinweis" not in change_flags:
+                    if neues_medium_hinweis and not self._same_medium(neues_medium_hinweis, medium):
+                        change_flags = [flag for flag in change_flags if flag != "Nur schwacher Hinweis"]
+                        if "Wahrscheinlicher Medienwechsel" not in change_flags:
+                            change_flags.append("Wahrscheinlicher Medienwechsel")
+                        if "Bei anderem Medium gefunden" not in change_flags:
+                            change_flags.append("Bei anderem Medium gefunden")
+                        gefunden_bei = neues_medium_hinweis
+                    elif "Nur schwacher Hinweis" not in change_flags:
                         change_flags.append("Nur schwacher Hinweis")
                     pruefen = "Ja"
-                    kommentar = "Nur allgemeine Websuche mit Namensnennung"
+                    kommentar = "Nur allgemeine Websuche mit Namensnennung" if not gefunden_bei else "Web-Treffer mit abweichendem Medium"
 
                 if not reliable_evidence and not hint_matches and not linkedin_mentions and not open_web_mentions and cascade_complete:
                     change_flags = ["Nichts Belastbares gefunden"]

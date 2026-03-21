@@ -289,7 +289,7 @@ class DeltaViewTests(unittest.TestCase):
         self.assertIn("Bei anderem Medium gefunden", row["Was_ist_anders"])
         self.assertEqual(row["Gefunden_bei"], "Neue Zeitung")
 
-    def test_linkedin_only_results_in_weak_hint(self):
+    def test_linkedin_only_results_in_follow_up_instead_of_weak_hint(self):
         row = self._first_row(
             {
                 "Handelsblatt": {
@@ -304,7 +304,8 @@ class DeltaViewTests(unittest.TestCase):
             },
             scan_scope_media={"Handelsblatt"},
         )
-        self.assertIn("Nur schwacher Hinweis", row["Was_ist_anders"])
+        self.assertNotIn("Nur schwacher Hinweis", row["Was_ist_anders"])
+        self.assertIn("Weitere Quelle pruefen", row["Was_ist_anders"])
         self.assertEqual(row["LinkedIn_Hinweis"], "Ja")
 
     def test_open_web_only_results_in_weak_hint(self):
