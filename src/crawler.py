@@ -52,6 +52,8 @@ class CrawlResult:
     snapshot_path: str
     error: str | None = None
     source_priority: str = ""
+    search_stage: str = ""
+    journalist: str = ""
 
 
 class Crawler:
@@ -250,6 +252,55 @@ class Crawler:
                 dedup.append((source_name, url))
         return dedup
 
+    def _build_secondary_search_urls(self, source_name: str, names: list[str]) -> list[tuple[str, str, str]]:
+        source = source_name.lower()
+        templates = {
+            "kress": "https://kress.de/suche?q={query}",
+            "turi2": "https://turi2.de/?s={query}",
+            "meedia": "https://meedia.de/?s={query}",
+        }
+        template = templates.get(source)
+        if not template:
+            return []
+        urls: list[tuple[str, str, str]] = []
+        for name in names:
+            query = quote_plus(self._normalize_query(name))
+            urls.append((name, source_name, template.replace("{query}", query)))
+        return urls
+
+    def _build_linkedin_urls(self, medium: str, names: list[str], profiles: dict) -> list[tuple[str, str]]:
+        domain = str(self._profile(medium, profiles).get("primary_domain", "")).strip()
+        urls: list[tuple[str, str]] = []
+        for name in names:
+            query = quote_plus(f'{name} {medium} LinkedIn')
+            urls.append((name, f"https://www.bing.com/search?q={query}"))
+            if domain:
+                domain_query = quote_plus(f'{name} site:linkedin.com/in "{medium}"')
+                urls.append((name, f"https://duckduckgo.com/?q={domain_query}"))
+        return urls
+
+    def _build_open_web_urls(self, medium: str, names: list[str], profiles: dict) -> list[tuple[str, str]]:
+        domain = str(self._profile(medium, profiles).get("primary_domain", "")).strip()
+        patterns = [
+            '"{name}" "{medium}"',
+            '"{name}" Redaktion',
+            '"{name}" Autor',
+            '"{name}" Journalist',
+            '"{name}" neuer Arbeitgeber',
+            '"{name}" kress',
+            '"{name}" turi2',
+            '"{name}" MEEDIA',
+            '"{name}" LinkedIn',
+        ]
+        if domain:
+            patterns.insert(1, '"{name}" site:{domain}')
+        urls: list[tuple[str, str]] = []
+        for name in names:
+            for pattern in patterns:
+                query = pattern.format(name=name, medium=medium, domain=domain)
+                urls.append((name, f"https://www.bing.com/search?q={quote_plus(query)}"))
+        return urls
+
     def _safe_slug(self, value: str) -> str:
         return re.sub(r"[^a-zA-Z0-9_-]+", "_", value.strip()).strip("_") or "unknown"
 
@@ -277,6 +328,8 @@ class Crawler:
         url: str,
         session: requests.Session,
         source_priority: str = "",
+        search_stage: str = "",
+        journalist: str = "",
     ) -> CrawlResult:
         status_code: int | None = None
         content = ""
@@ -300,6 +353,8 @@ class Crawler:
             snapshot_path=str(snapshot),
             error=error,
             source_priority=source_priority,
+            search_stage=search_stage,
+            journalist=journalist,
         )
 
     def _official_source_name(self, url: str) -> str:
@@ -357,9 +412,39 @@ class Crawler:
                     url=url,
                     session=session,
                     source_priority=self._source_priority(target.medium, source_name, profiles),
+                    search_stage="offizielle_mediumsseiten",
                 )
                 results.setdefault(target.medium, []).append(result)
                 if idx < len(medium_urls) - 1:
+                    time.sleep(self.crawl_delay_s)
+
+            for idx, (journalist, url) in enumerate(self._build_linkedin_urls(target.medium, candidate_names, profiles)):
+                result = self._fetch(
+                    medium=target.medium,
+                    source_name="LinkedIn",
+                    source_type="linkedin_source",
+                    url=url,
+                    session=session,
+                    search_stage="linkedin",
+                    journalist=journalist,
+                )
+                results.setdefault(target.medium, []).append(result)
+                if idx < len(candidate_names) - 1:
+                    time.sleep(self.crawl_delay_s)
+
+            open_web_urls = self._build_open_web_urls(target.medium, candidate_names, profiles)
+            for idx, (journalist, url) in enumerate(open_web_urls):
+                result = self._fetch(
+                    medium=target.medium,
+                    source_name="Websuche",
+                    source_type="open_web",
+                    url=url,
+                    session=session,
+                    search_stage="allgemeine_websuche",
+                    journalist=journalist,
+                )
+                results.setdefault(target.medium, []).append(result)
+                if idx < len(open_web_urls) - 1:
                     time.sleep(self.crawl_delay_s)
 
         secondary = self.load_secondary_sources()
@@ -374,9 +459,28 @@ class Crawler:
                 source_type="industry_source",
                 url=url,
                 session=session,
+                search_stage="branchenquelle",
             )
             results.setdefault(name, []).append(result)
             if idx < len(secondary) - 1:
                 time.sleep(self.crawl_delay_s)
+
+        for target in targets:
+            candidate_names = contacts_by_medium.get(target.medium, [])[:5]
+            for source in secondary:
+                for journalist, source_name, url in self._build_secondary_search_urls(source["name"], candidate_names):
+                    if not self._domain_allowed("industry_source", url, rules):
+                        continue
+                    result = self._fetch(
+                        medium=target.medium,
+                        source_name=source_name,
+                        source_type="industry_source",
+                        url=url,
+                        session=session,
+                        search_stage="branchenquelle",
+                        journalist=journalist,
+                    )
+                    results.setdefault(target.medium, []).append(result)
+                    time.sleep(self.crawl_delay_s)
 
         return results
