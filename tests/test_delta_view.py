@@ -478,6 +478,68 @@ class DeltaViewTests(unittest.TestCase):
         self.assertTrue(details)
         self.assertEqual(details[0]["Match_Art"], "email_pattern")
 
+    def test_personal_master_email_and_feedback_web_is_not_email_changed(self):
+        row = self._first_row(
+            {
+                "Handelsblatt": {
+                    "official_contacts": [{"vorname": "Anna", "nachname": "Muster", "email": "feedback@handelsblatt.com", "telefon": "+49 30 111", "rolle": "Finanzen"}],
+                    "official_documents": [{"url": "https://handelsblatt.com/team", "page_type": "team", "text": "Anna Muster"}],
+                    "industry_hints": [],
+                    "medium_status": "ok",
+                }
+            },
+            scan_scope_media={"Handelsblatt"},
+        )
+        self.assertNotIn("E-Mail geaendert", row["Was_ist_anders"])
+        self.assertIn("Journalist bestaetigt; persoenliche E-Mail nicht bestaetigt", row["Was_ist_anders"])
+        self.assertIn("Allgemeine Kontaktadresse gefunden", row["Was_ist_anders"])
+        self.assertEqual(row["Empfohlene_Aktion"], "Keine automatische Uebernahme")
+
+    def test_personal_master_email_and_redaktion_web_is_not_email_changed(self):
+        row = self._first_row(
+            {
+                "Handelsblatt": {
+                    "official_contacts": [{"vorname": "Anna", "nachname": "Muster", "email": "redaktion@handelsblatt.com", "telefon": "+49 30 111", "rolle": "Finanzen"}],
+                    "official_documents": [{"url": "https://handelsblatt.com/team", "page_type": "team", "text": "Anna Muster"}],
+                    "industry_hints": [],
+                    "medium_status": "ok",
+                }
+            },
+            scan_scope_media={"Handelsblatt"},
+        )
+        self.assertNotIn("E-Mail geaendert", row["Was_ist_anders"])
+        self.assertIn("Allgemeine Kontaktadresse gefunden", row["Was_ist_anders"])
+
+    def test_personal_master_email_and_new_personal_email_is_marked_changed(self):
+        row = self._first_row(
+            {
+                "Handelsblatt": {
+                    "official_contacts": [{"vorname": "Anna", "nachname": "Muster", "email": "anna.neu@handelsblatt.com", "telefon": "+49 30 111", "rolle": "Finanzen"}],
+                    "official_documents": [{"url": "https://handelsblatt.com/team", "page_type": "team", "text": "Anna Muster"}],
+                    "industry_hints": [],
+                    "medium_status": "ok",
+                }
+            },
+            scan_scope_media={"Handelsblatt"},
+        )
+        self.assertIn("E-Mail geaendert", row["Was_ist_anders"])
+        self.assertNotIn("Keine automatische Uebernahme", row["Was_ist_anders"])
+
+    def test_personal_master_phone_and_switchboard_web_is_not_phone_changed(self):
+        row = self._first_row(
+            {
+                "Handelsblatt": {
+                    "official_contacts": [{"vorname": "Service", "nachname": "Desk", "email": "service@handelsblatt.com", "telefon": "+49 30 999", "rolle": "Switchboard"}],
+                    "official_documents": [{"url": "https://handelsblatt.com/team", "page_type": "team", "text": "Anna Muster"}],
+                    "industry_hints": [],
+                    "medium_status": "ok",
+                }
+            },
+            scan_scope_media={"Handelsblatt"},
+        )
+        self.assertNotIn("Telefon geaendert", row["Was_ist_anders"])
+        self.assertIn("Allgemeine Kontaktadresse gefunden", row["Was_ist_anders"])
+
     def test_benchmark_media_prefers_confirmed_and_probable_over_not_found(self):
         class BenchmarkMatcher(StubMatcher):
             def load_master_contacts(self):

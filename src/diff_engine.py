@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 ALLOWED_CHANGE_TYPES = {
     "Journalist bestaetigt",
+    "Journalist bestaetigt; persoenliche E-Mail nicht bestaetigt",
     "Wahrscheinlicher Treffer",
     "Manuell pruefen",
     "Journalist bei Medium nicht mehr gefunden",
@@ -21,6 +22,8 @@ ALLOWED_CHANGE_TYPES = {
     "Bei anderem Medium gefunden",
     "Nur schwacher Hinweis",
     "Nichts Belastbares gefunden",
+    "Allgemeine Kontaktadresse gefunden",
+    "Keine automatische Uebernahme",
 }
 
 
@@ -36,7 +39,11 @@ class DiffEngine:
     """Generates delta outputs for reporting while retaining backward compatibility."""
 
     def _normalize_change_text(self, raw: str) -> str:
-        parts = [part.strip() for part in str(raw or "").split(";") if part.strip()]
+        text = str(raw or "")
+        protected_label = "Journalist bestaetigt; persoenliche E-Mail nicht bestaetigt"
+        sentinel = "__JOURNALIST_BESTAETIGT_EMAIL_NICHT_BESTAETIGT__"
+        text = text.replace(protected_label, sentinel)
+        parts = [part.strip().replace(sentinel, protected_label) for part in text.split(";") if part.strip()]
         normalized = [part for part in parts if part in ALLOWED_CHANGE_TYPES]
         return "; ".join(dict.fromkeys(normalized or parts))
 
