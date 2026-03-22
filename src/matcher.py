@@ -12,6 +12,7 @@ import unicodedata
 import pandas as pd
 from rapidfuzz import fuzz
 
+from hit_evaluator import evaluate_hit
 from validator import SourceCoverageAssessor
 
 
@@ -30,6 +31,7 @@ class Matcher:
         self.coverage_assessor = SourceCoverageAssessor()
         self._matching_detail_rows: list[dict] = []
         self._web_research_detail_rows: list[dict] = []
+        self._treffer_auswertung_detail_rows: list[dict] = []
         self._benchmark_media = {
             self._normalize_name(name)
             for name in (
@@ -135,7 +137,7 @@ class Matcher:
     ) -> str:
         candidates: list[str] = []
         for hint in hint_matches:
-            value = str(hint.get("new_medium_hint", "")).strip()
+            value = str(hint.get("erkanntes_medium", "")).strip() or str(hint.get("new_medium_hint", "")).strip()
             if value:
                 candidates.append(value)
         for doc in linkedin_mentions + open_web_mentions:
@@ -447,6 +449,7 @@ class Matcher:
         rows: list[dict] = []
         self._matching_detail_rows = []
         self._web_research_detail_rows = []
+        self._treffer_auswertung_detail_rows = []
         not_scanned_rows: list[dict] = []
         for medium, medium_master_contacts in master_by_medium.items():
             if scoped_media is not None and medium not in scoped_media:
@@ -563,6 +566,33 @@ class Matcher:
                 industry_mentions = self._industry_mentions(self._name(master), industry_documents)
                 linkedin_mentions = self._find_documents_with_name(self._name(master), industry_documents, "linkedin_source")
                 open_web_mentions = self._find_documents_with_name(self._name(master), industry_documents, "open_web")
+                evaluated_linkedin = [
+                    evaluate_hit(
+                        text=str(doc.get("text", "")),
+                        source_type="linkedin_source",
+                        source_name=str(doc.get("source_name", "LinkedIn")),
+                        current_medium=medium,
+                    )
+                    for doc in linkedin_mentions
+                ]
+                evaluated_web = [
+                    evaluate_hit(
+                        text=str(doc.get("text", "")),
+                        source_type="open_web",
+                        source_name=str(doc.get("source_name", "open_web")),
+                        current_medium=medium,
+                    )
+                    for doc in open_web_mentions
+                ]
+                evaluated_industry = [
+                    evaluate_hit(
+                        text=str(hint.get("detail", "")),
+                        source_type="industry_source",
+                        source_name=str(hint.get("source", "Branchenquelle")),
+                        current_medium=medium,
+                    )
+                    for hint in hint_matches
+                ]
                 required_stages = (
                     "offizielle_mediumsseiten",
                     "domain_interne_suche",
@@ -651,6 +681,9 @@ class Matcher:
                         if neues_medium_hinweis:
                             change_flags.append("Bei anderem Medium gefunden")
                             gefunden_bei = neues_medium_hinweis
+                        if any(e.entscheidung == "Wahrscheinlicher Medienwechsel" for e in evaluated_industry):
+                            externer_hinweis = self._compose_external_hint(hint_matches)
+                            quellenbasis = "Branchenquelle"
                     elif coverage.level == "hoch":
                         if cascade_complete or not cascade_state_known:
                             change_flags.append("Journalist bei Medium nicht mehr gefunden")
@@ -683,7 +716,17 @@ class Matcher:
                 if linkedin_mentions and not reliable_evidence and not hint_matches:
                     pruefen = "Ja"
                     quellenbasis = "LinkedIn + Websuche"
-                    if neues_medium_hinweis and not self._same_medium(neues_medium_hinweis, medium):
+                    linkedin_strong = next((e for e in evaluated_linkedin if e.entscheidung == "LinkedIn bestaetigt neues Medium"), None)
+                    if linkedin_strong:
+                        change_flags = [flag for flag in change_flags if flag not in {"Nur schwacher Hinweis", "Weitere Quelle pruefen"}]
+                        if "LinkedIn bestaetigt neues Medium" not in change_flags:
+                            change_flags.append("LinkedIn bestaetigt neues Medium")
+                        if "Bei anderem Medium gefunden" not in change_flags:
+                            change_flags.append("Bei anderem Medium gefunden")
+                        gefunden_bei = linkedin_strong.erkanntes_medium or neues_medium_hinweis
+                        neues_medium_hinweis = linkedin_strong.erkanntes_medium or neues_medium_hinweis
+                        kommentar = linkedin_strong.kommentar
+                    elif neues_medium_hinweis and not self._same_medium(neues_medium_hinweis, medium):
                         change_flags = [flag for flag in change_flags if flag != "Nur schwacher Hinweis"]
                         if "Wahrscheinlicher Medienwechsel" not in change_flags:
                             change_flags.append("Wahrscheinlicher Medienwechsel")
@@ -697,7 +740,17 @@ class Matcher:
                         kommentar = "LinkedIn-Hinweis ohne eindeutigen Medienwechsel"
 
                 if open_web_mentions and not reliable_evidence and not hint_matches and not linkedin_mentions:
-                    if neues_medium_hinweis and not self._same_medium(neues_medium_hinweis, medium):
+                    web_strong = next((e for e in evaluated_web if e.entscheidung == "Bei anderem Medium gefunden"), None)
+                    if web_strong:
+                        change_flags = [flag for flag in change_flags if flag != "Nur schwacher Hinweis"]
+                        if "Bei anderem Medium gefunden" not in change_flags:
+                            change_flags.append("Bei anderem Medium gefunden")
+                        if "Wahrscheinlicher Medienwechsel" not in change_flags:
+                            change_flags.append("Wahrscheinlicher Medienwechsel")
+                        gefunden_bei = web_strong.erkanntes_medium or neues_medium_hinweis
+                        neues_medium_hinweis = web_strong.erkanntes_medium or neues_medium_hinweis
+                        kommentar = web_strong.kommentar
+                    elif neues_medium_hinweis and not self._same_medium(neues_medium_hinweis, medium):
                         change_flags = [flag for flag in change_flags if flag != "Nur schwacher Hinweis"]
                         if "Wahrscheinlicher Medienwechsel" not in change_flags:
                             change_flags.append("Wahrscheinlicher Medienwechsel")
@@ -786,6 +839,36 @@ class Matcher:
                             "Kommentar": kommentar if not hit else "",
                         }
                     )
+                for doc, evaluated in list(zip(linkedin_mentions, evaluated_linkedin)) + list(zip(open_web_mentions, evaluated_web)):
+                    self._treffer_auswertung_detail_rows.append(
+                        {
+                            "Medium_alt": medium,
+                            "Journalist": self._name(master),
+                            "Trefferquelle": doc.get("source_name", ""),
+                            "Treffertext_kurz": str(doc.get("text", ""))[:220],
+                            "Erkannter_Arbeitgeber": evaluated.erkannter_arbeitgeber,
+                            "Erkanntes_Medium": evaluated.erkanntes_medium,
+                            "Erkannte_Rolle": evaluated.erkannte_rolle,
+                            "Bewertungsstufe": evaluated.bewertungsstufe,
+                            "Entscheidung": evaluated.entscheidung,
+                            "Kommentar": evaluated.kommentar,
+                        }
+                    )
+                for hint, evaluated in zip(hint_matches, evaluated_industry):
+                    self._treffer_auswertung_detail_rows.append(
+                        {
+                            "Medium_alt": medium,
+                            "Journalist": self._name(master),
+                            "Trefferquelle": hint.get("source", ""),
+                            "Treffertext_kurz": str(hint.get("detail", ""))[:220],
+                            "Erkannter_Arbeitgeber": evaluated.erkannter_arbeitgeber or hint.get("erkanntes_medium", ""),
+                            "Erkanntes_Medium": evaluated.erkanntes_medium or hint.get("new_medium_hint", ""),
+                            "Erkannte_Rolle": evaluated.erkannte_rolle or hint.get("erkannte_rolle", ""),
+                            "Bewertungsstufe": evaluated.bewertungsstufe or hint.get("belastbarkeit", ""),
+                            "Entscheidung": evaluated.entscheidung or hint.get("entscheidung", ""),
+                            "Kommentar": evaluated.kommentar or hint.get("kommentar", ""),
+                        }
+                    )
         return rows, not_scanned_rows
 
     def get_matching_detail_rows(self) -> list[dict]:
@@ -793,6 +876,9 @@ class Matcher:
 
     def get_web_research_detail_rows(self) -> list[dict]:
         return list(self._web_research_detail_rows)
+
+    def get_treffer_auswertung_detail_rows(self) -> list[dict]:
+        return list(self._treffer_auswertung_detail_rows)
 
     def match(self, parsed_data: dict[str, list[dict]]) -> dict[str, list[dict]]:
         return parsed_data
