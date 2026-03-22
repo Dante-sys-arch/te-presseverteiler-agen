@@ -66,6 +66,31 @@ class Matcher:
             "team",
             "info",
         }
+        self._generic_email_locals = {
+            "feedback",
+            "redaktion",
+            "info",
+            "service",
+            "kontakt",
+            "leserservice",
+            "office",
+            "presse",
+            "newsroom",
+            "desk",
+            "ressort",
+            "politik",
+            "wirtschaft",
+            "sport",
+            "kultur",
+        }
+        self._central_phone_tokens = {
+            "zentrale",
+            "zentral",
+            "hotline",
+            "service",
+            "switchboard",
+            "vermittlung",
+        }
 
     def _compose_external_hint(self, hint_matches: list[dict]) -> str:
         if not hint_matches:
@@ -192,6 +217,40 @@ class Matcher:
         haystack = f"{name} {local} {role}"
         return any(token in haystack for token in self._function_tokens)
 
+    def _is_generic_email(self, email: str) -> bool:
+        local = str(email or "").strip().lower().split("@", 1)[0]
+        if not local:
+            return False
+        local_tokens = [part for part in re.split(r"[._\-+]", local) if part]
+        return any(token in self._generic_email_locals for token in local_tokens)
+
+    def _email_looks_personal(self, email: str, row: dict) -> bool:
+        normalized_email = str(email or "").strip().lower()
+        if not normalized_email or "@" not in normalized_email:
+            return False
+        if self._is_generic_email(normalized_email):
+            return False
+        local = normalized_email.split("@", 1)[0]
+        first, last = self._split_name(self._name(row))
+        personal_tokens = {token for token in {first, last} if token}
+        normalized_local = re.sub(r"[^a-z0-9]", "", local)
+        if any(token and token in normalized_local for token in personal_tokens):
+            return True
+        if "." in local and len(local.split(".")) >= 2:
+            return True
+        return bool(re.search(r"[a-z]{2,}[._\-][a-z]{2,}", local))
+
+    def _is_central_phone(self, phone: str, row: dict) -> bool:
+        normalized_phone = re.sub(r"\D+", "", str(phone or ""))
+        if not normalized_phone:
+            return False
+        if self._is_function_address(row):
+            return True
+        role = self._normalize_name(str(row.get("rolle", row.get("ressort", ""))))
+        name = self._normalize_name(self._name(row))
+        haystack = f"{role} {name}"
+        return any(token in haystack for token in self._central_phone_tokens)
+
     def _email_pattern_score(self, master_email: str, candidate_email: str) -> int:
         if not master_email or not candidate_email:
             return 0
@@ -273,6 +332,8 @@ class Matcher:
         return found
 
     def _recommended_action(self, change_flags: list[str]) -> str:
+        if "Keine automatische Uebernahme" in change_flags:
+            return "Keine automatische Uebernahme"
         if "Medium nicht erreichbar" in change_flags:
             return "spaeter erneut pruefen oder URL korrigieren"
         if "Medium wahrscheinlich nicht mehr aktiv" in change_flags:
@@ -526,11 +587,39 @@ class Matcher:
                 if reliable_evidence or match_score >= 85:
                     im_web = "Ja"
                     change_flags.append("Journalist bestaetigt")
+                    contact_type_notes: list[str] = []
                     for field, label in (("email", "E-Mail geaendert"), ("telefon", "Telefon geaendert"), ("rolle", "Ressort geaendert")):
                         old = (master.get(field if field != "rolle" else "ressort", "") or "").strip().lower()
                         new = (official_match or {}).get(field, "").strip().lower()
-                        if old and new and old != new:
-                            change_flags.append(label)
+                        if not (old and new and old != new):
+                            continue
+                        if field == "email":
+                            master_email_personal = self._email_looks_personal(old, master)
+                            new_email_personal = self._email_looks_personal(new, official_match or {})
+                            if master_email_personal and self._is_generic_email(new):
+                                change_flags = [flag for flag in change_flags if flag != "Journalist bestaetigt"]
+                                change_flags.append("Journalist bestaetigt; persoenliche E-Mail nicht bestaetigt")
+                                change_flags.append("Allgemeine Kontaktadresse gefunden")
+                                change_flags.append("Keine automatische Uebernahme")
+                                contact_type_notes.append("E-Mail-Typ: allgemein")
+                                continue
+                            if new_email_personal and (reliable_evidence or match_score >= 85):
+                                change_flags.append(label)
+                                contact_type_notes.append("E-Mail-Typ: personengebunden")
+                            continue
+                        if field == "telefon":
+                            master_phone_personal = not self._is_central_phone(old, master)
+                            new_phone_central = self._is_central_phone(new, official_match or {})
+                            if master_phone_personal and new_phone_central:
+                                change_flags.append("Allgemeine Kontaktadresse gefunden")
+                                change_flags.append("Keine automatische Uebernahme")
+                                contact_type_notes.append("Telefon-Typ: zentral")
+                                continue
+                            if not new_phone_central:
+                                change_flags.append(label)
+                                contact_type_notes.append("Telefon-Typ: personengebunden")
+                            continue
+                        change_flags.append(label)
                     if official_match:
                         neuer_stand = f"{official_match.get('email', '')} | {official_match.get('telefon', '')} | {official_match.get('rolle', '')}"
                     if official_evidence.get("team") or official_evidence.get("redaktion"):
@@ -541,6 +630,8 @@ class Matcher:
                         kommentar = "interne Suchseite mit Treffer"
                     else:
                         kommentar = "offizielle Quelle bestaetigt"
+                    if contact_type_notes:
+                        kommentar = f"{kommentar}; {'; '.join(dict.fromkeys(contact_type_notes))}"
                 else:
                     if match_score >= 65:
                         change_flags.append("Wahrscheinlicher Treffer")
