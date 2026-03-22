@@ -6,6 +6,9 @@ from dataclasses import dataclass, field
 
 ALLOWED_CHANGE_TYPES = {
     "Journalist bestaetigt",
+    "Journalist bestaetigt; E-Mail geaendert",
+    "Journalist bestaetigt; Ressort geaendert",
+    "Journalist bestaetigt; Telefon geaendert",
     "Journalist bestaetigt; persoenliche E-Mail nicht bestaetigt",
     "Wahrscheinlicher Treffer",
     "Manuell pruefen",
@@ -20,6 +23,7 @@ ALLOWED_CHANGE_TYPES = {
     "Ressort geaendert",
     "Nicht im aktuellen Scan-Scope",
     "Bei anderem Medium gefunden",
+    "LinkedIn bestaetigt neues Medium",
     "Nur schwacher Hinweis",
     "Nichts Belastbares gefunden",
     "Allgemeine Kontaktadresse gefunden",
@@ -45,6 +49,15 @@ class DiffEngine:
         text = text.replace(protected_label, sentinel)
         parts = [part.strip().replace(sentinel, protected_label) for part in text.split(";") if part.strip()]
         normalized = [part for part in parts if part in ALLOWED_CHANGE_TYPES]
+        if "Journalist bestaetigt" in parts and "E-Mail geaendert" in parts:
+            normalized = [p for p in normalized if p not in {"Journalist bestaetigt", "E-Mail geaendert"}]
+            normalized.append("Journalist bestaetigt; E-Mail geaendert")
+        if "Journalist bestaetigt" in parts and "Ressort geaendert" in parts:
+            normalized = [p for p in normalized if p not in {"Journalist bestaetigt", "Ressort geaendert"}]
+            normalized.append("Journalist bestaetigt; Ressort geaendert")
+        if "Journalist bestaetigt" in parts and "Telefon geaendert" in parts:
+            normalized = [p for p in normalized if p not in {"Journalist bestaetigt", "Telefon geaendert"}]
+            normalized.append("Journalist bestaetigt; Telefon geaendert")
         return "; ".join(dict.fromkeys(normalized or parts))
 
     def build_delta_rows(self, matched_rows: list[dict]) -> list[dict]:

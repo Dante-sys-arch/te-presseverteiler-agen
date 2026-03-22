@@ -7,6 +7,7 @@ import html
 import re
 from typing import Any
 
+from hit_evaluator import evaluate_hit
 from validator import SourceCoverageAssessor
 from validator import Validator
 
@@ -41,6 +42,12 @@ class IndustryHint:
     hint_type: str = ""
     detail: str = ""
     new_medium_hint: str = ""
+    erkannter_arbeitgeber: str = ""
+    erkanntes_medium: str = ""
+    erkannte_rolle: str = ""
+    belastbarkeit: str = ""
+    entscheidung: str = ""
+    kommentar: str = ""
 
 
 class Parser:
@@ -146,6 +153,7 @@ class Parser:
                 names = [f"{f} {l}" for f, l in NAME_RE.findall(line)]
                 for name in names or [""]:
                     employer_match = NEW_EMPLOYER_RE.search(line)
+                    evaluated = evaluate_hit(text=line, source_type=source_type or "industry_source", source_name=source, current_medium="")
                     hints.append(
                         IndustryHint(
                             journalist=name,
@@ -153,20 +161,34 @@ class Parser:
                             hint_type="Branchenquelle meldet Wechsel",
                             detail=line[:300],
                             new_medium_hint=(employer_match.group(2).strip() if employer_match else ""),
+                            erkannter_arbeitgeber=evaluated.erkannter_arbeitgeber,
+                            erkanntes_medium=evaluated.erkanntes_medium or (employer_match.group(2).strip() if employer_match else ""),
+                            erkannte_rolle=evaluated.erkannte_rolle,
+                            belastbarkeit=evaluated.bewertungsstufe,
+                            entscheidung=evaluated.entscheidung,
+                            kommentar=evaluated.kommentar,
                         )
                     )
             elif source_type in {"linkedin_source", "open_web"}:
                 names = [f"{f} {l}" for f, l in NAME_RE.findall(line)]
                 journalist_name = names[0] if names else fallback_journalist
                 employer_match = EMPLOYER_CONTEXT_RE.search(line)
-                if journalist_name and employer_match:
+                evaluated = evaluate_hit(text=line, source_type=source_type, source_name=source, current_medium="")
+                if journalist_name and (employer_match or evaluated.erkanntes_medium):
+                    employer_hint = employer_match.group(1).strip() if employer_match else evaluated.erkanntes_medium
                     hints.append(
                         IndustryHint(
                             journalist=journalist_name,
                             source=source,
                             hint_type="Externes Profil mit Arbeitgeber-Hinweis",
                             detail=line[:300],
-                            new_medium_hint=employer_match.group(1).strip(),
+                            new_medium_hint=employer_hint,
+                            erkannter_arbeitgeber=evaluated.erkannter_arbeitgeber or employer_hint,
+                            erkanntes_medium=evaluated.erkanntes_medium or employer_hint,
+                            erkannte_rolle=evaluated.erkannte_rolle,
+                            belastbarkeit=evaluated.bewertungsstufe,
+                            entscheidung=evaluated.entscheidung,
+                            kommentar=evaluated.kommentar,
                         )
                     )
             elif INACTIVE_HINT_RE.search(line):

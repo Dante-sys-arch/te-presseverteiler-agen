@@ -47,6 +47,7 @@ def run_pipeline(base_dir: Path) -> Path:
     matched_rows, not_scanned_master_rows = matcher.build_delta_inputs(structured, scan_scope_media=scan_scope_media)
     matching_detail_rows = matcher.get_matching_detail_rows()
     web_research_detail_rows = matcher.get_web_research_detail_rows()
+    treffer_auswertung_detail_rows = matcher.get_treffer_auswertung_detail_rows()
     delta_rows = diff_engine.build_delta_rows(matched_rows)
     unscanned_rows = diff_engine.build_unscanned_rows(not_scanned_master_rows)
 
@@ -58,6 +59,7 @@ def run_pipeline(base_dir: Path) -> Path:
         medium_recherche_detail_rows=medium_recherche_detail_rows,
         matching_detail_rows=matching_detail_rows,
         web_research_detail_rows=web_research_detail_rows,
+        treffer_auswertung_detail_rows=treffer_auswertung_detail_rows,
     )
     return report_path
 

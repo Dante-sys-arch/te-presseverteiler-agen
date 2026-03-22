@@ -44,6 +44,7 @@ class Reporter:
         medium_recherche_detail_rows: list[dict] | None = None,
         matching_detail_rows: list[dict] | None = None,
         web_research_detail_rows: list[dict] | None = None,
+        treffer_auswertung_detail_rows: list[dict] | None = None,
     ) -> Path:
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -121,5 +122,20 @@ class Reporter:
             ]
             web_research_df = pd.DataFrame(web_research_detail_rows or []).reindex(columns=web_research_columns)
             web_research_df.to_excel(writer, sheet_name="Webrecherche_Detail", index=False)
+
+            treffer_columns = [
+                "Medium_alt",
+                "Journalist",
+                "Trefferquelle",
+                "Treffertext_kurz",
+                "Erkannter_Arbeitgeber",
+                "Erkanntes_Medium",
+                "Erkannte_Rolle",
+                "Bewertungsstufe",
+                "Entscheidung",
+                "Kommentar",
+            ]
+            treffer_df = pd.DataFrame(treffer_auswertung_detail_rows or []).reindex(columns=treffer_columns)
+            treffer_df.to_excel(writer, sheet_name="Treffer_Auswertung_Detail", index=False)
 
         return report_path
