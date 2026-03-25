@@ -23,6 +23,8 @@ MAIN_COLUMNS = [
     "Neues_Medium_Hinweis",
     "Gefunden_bei",
     "Quellenbasis",
+    "E-Mail_Typ_Bewertung",
+    "Telefon_Typ_Bewertung",
     "Empfohlene_Aktion",
     "Pruefen",
     "Kommentar",

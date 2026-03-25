@@ -93,6 +93,14 @@ class Matcher:
             "switchboard",
             "vermittlung",
         }
+        self._central_phone_text_tokens = {
+            "zentrale",
+            "hotline",
+            "service",
+            "switchboard",
+            "vermittlung",
+            "telefonzentrale",
+        }
 
     def _compose_external_hint(self, hint_matches: list[dict]) -> str:
         if not hint_matches:
@@ -243,6 +251,9 @@ class Matcher:
         return bool(re.search(r"[a-z]{2,}[._\-][a-z]{2,}", local))
 
     def _is_central_phone(self, phone: str, row: dict) -> bool:
+        raw_phone = str(phone or "").lower()
+        if any(token in raw_phone for token in self._central_phone_text_tokens):
+            return True
         normalized_phone = re.sub(r"\D+", "", str(phone or ""))
         if not normalized_phone:
             return False
@@ -609,6 +620,8 @@ class Matcher:
                 im_web = "Nein"
                 neuer_stand = ""
                 kommentar = coverage.comment
+                email_typ_bewertung = "unbekannt"
+                telefon_typ_bewertung = "unbekannt"
                 linkedin_hinweis = "Ja" if linkedin_mentions else "Nein"
                 neues_medium_hinweis = self._derive_new_medium_hint(hint_matches, linkedin_mentions, open_web_mentions, medium)
                 gefunden_bei = medium if (reliable_evidence or match_score >= 65) else ""
@@ -631,11 +644,15 @@ class Matcher:
                                 change_flags.append("Journalist bestaetigt; persoenliche E-Mail nicht bestaetigt")
                                 change_flags.append("Allgemeine Kontaktadresse gefunden")
                                 change_flags.append("Keine automatische Uebernahme")
+                                email_typ_bewertung = "Master: personengebunden | Web: allgemein"
                                 contact_type_notes.append("E-Mail-Typ: allgemein")
                                 continue
                             if new_email_personal and (reliable_evidence or match_score >= 85):
                                 change_flags.append(label)
+                                email_typ_bewertung = "Master: personengebunden | Web: personengebunden"
                                 contact_type_notes.append("E-Mail-Typ: personengebunden")
+                            elif self._is_generic_email(new):
+                                email_typ_bewertung = "Master: unbekannt | Web: allgemein"
                             continue
                         if field == "telefon":
                             master_phone_personal = not self._is_central_phone(old, master)
@@ -643,11 +660,15 @@ class Matcher:
                             if master_phone_personal and new_phone_central:
                                 change_flags.append("Allgemeine Kontaktadresse gefunden")
                                 change_flags.append("Keine automatische Uebernahme")
+                                telefon_typ_bewertung = "Master: personengebunden | Web: zentral"
                                 contact_type_notes.append("Telefon-Typ: zentral")
                                 continue
                             if not new_phone_central:
                                 change_flags.append(label)
+                                telefon_typ_bewertung = "Master: personengebunden | Web: personengebunden"
                                 contact_type_notes.append("Telefon-Typ: personengebunden")
+                            else:
+                                telefon_typ_bewertung = "Master: unbekannt | Web: zentral"
                             continue
                         change_flags.append(label)
                     if official_match:
@@ -817,6 +838,8 @@ class Matcher:
                         "neues_medium_hinweis": neues_medium_hinweis,
                         "gefunden_bei": gefunden_bei,
                         "quellenbasis": quellenbasis,
+                        "email_typ_bewertung": email_typ_bewertung,
+                        "telefon_typ_bewertung": telefon_typ_bewertung,
                     }
                 )
                 for stage, details in (
