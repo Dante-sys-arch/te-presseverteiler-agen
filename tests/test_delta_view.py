@@ -493,6 +493,7 @@ class DeltaViewTests(unittest.TestCase):
         self.assertNotIn("E-Mail geaendert", row["Was_ist_anders"])
         self.assertIn("Journalist bestaetigt; persoenliche E-Mail nicht bestaetigt", row["Was_ist_anders"])
         self.assertIn("Allgemeine Kontaktadresse gefunden", row["Was_ist_anders"])
+        self.assertEqual(row["E-Mail_Typ_Bewertung"], "Master: personengebunden | Web: allgemein")
         self.assertEqual(row["Empfohlene_Aktion"], "Keine automatische Uebernahme")
 
     def test_personal_master_email_and_redaktion_web_is_not_email_changed(self):
@@ -524,6 +525,7 @@ class DeltaViewTests(unittest.TestCase):
         )
         self.assertIn("E-Mail geaendert", row["Was_ist_anders"])
         self.assertNotIn("Keine automatische Uebernahme", row["Was_ist_anders"])
+        self.assertEqual(row["E-Mail_Typ_Bewertung"], "Master: personengebunden | Web: personengebunden")
 
     def test_personal_master_phone_and_switchboard_web_is_not_phone_changed(self):
         row = self._first_row(
@@ -539,6 +541,7 @@ class DeltaViewTests(unittest.TestCase):
         )
         self.assertNotIn("Telefon geaendert", row["Was_ist_anders"])
         self.assertIn("Allgemeine Kontaktadresse gefunden", row["Was_ist_anders"])
+        self.assertEqual(row["Telefon_Typ_Bewertung"], "Master: personengebunden | Web: zentral")
 
     def test_benchmark_media_prefers_confirmed_and_probable_over_not_found(self):
         class BenchmarkMatcher(StubMatcher):
