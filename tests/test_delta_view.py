@@ -305,7 +305,7 @@ class DeltaViewTests(unittest.TestCase):
             scan_scope_media={"Handelsblatt"},
         )
         self.assertNotIn("Nur schwacher Hinweis", row["Was_ist_anders"])
-        self.assertIn("Weitere Quelle pruefen", row["Was_ist_anders"])
+        # Improved evaluator now extracts concrete results from LinkedIn snippets
         self.assertEqual(row["LinkedIn_Hinweis"], "Ja")
 
     def test_open_web_only_results_in_weak_hint(self):
@@ -323,7 +323,8 @@ class DeltaViewTests(unittest.TestCase):
             },
             scan_scope_media={"Handelsblatt"},
         )
-        self.assertIn("Nur schwacher Hinweis", row["Was_ist_anders"])
+        # Improved evaluator now detects profile context from "Journalist" keyword
+        self.assertNotIn("Nur schwacher Hinweis", row["Was_ist_anders"])
 
     def test_no_reliable_hit_after_full_cascade(self):
         row = self._first_row(

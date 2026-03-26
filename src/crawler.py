@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 import csv
+import os
 import re
 import time
 from urllib.parse import quote_plus, urlparse
@@ -17,6 +18,7 @@ import yaml
 
 
 USER_AGENT = "te-presseverteiler-agent/2.0 (+respectful-crawler)"
+GOOGLE_CSE_ENDPOINT = "https://www.googleapis.com/customsearch/v1"
 OFFICIAL_PAGE_FIELDS = (
     "impressum_url",
     "redaktion_url",
@@ -78,6 +80,32 @@ class Crawler:
         self.master_file = master_file
         self.crawl_delay_s = crawl_delay_s
         self.timeout_s = timeout_s
+        self._google_api_key = os.environ.get("GOOGLE_CSE_API_KEY", "").strip()
+        self._google_cx = os.environ.get("GOOGLE_CSE_CX", "").strip()
+        self._google_available = bool(self._google_api_key and self._google_cx)
+
+    def _google_search(self, query: str, session: requests.Session, num: int = 5) -> list[dict]:
+        """Call Google Custom Search API. Returns list of {title, snippet, link}."""
+        if not self._google_available:
+            return []
+        try:
+            resp = session.get(
+                GOOGLE_CSE_ENDPOINT,
+                params={"key": self._google_api_key, "cx": self._google_cx, "q": query, "num": num},
+                timeout=self.timeout_s,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return [
+                {
+                    "title": item.get("title", ""),
+                    "snippet": item.get("snippet", ""),
+                    "link": item.get("link", ""),
+                }
+                for item in data.get("items", [])
+            ]
+        except Exception:
+            return []
 
     def _load_yaml(self, path: Path | None) -> dict:
         if not path or not path.exists():
@@ -419,30 +447,74 @@ class Crawler:
                     time.sleep(self.crawl_delay_s)
 
             for idx, (journalist, url) in enumerate(self._build_linkedin_urls(target.medium, candidate_names, profiles)):
-                result = self._fetch(
-                    medium=target.medium,
-                    source_name="LinkedIn",
-                    source_type="linkedin_source",
-                    url=url,
-                    session=session,
-                    search_stage="linkedin",
-                    journalist=journalist,
-                )
+                if self._google_available:
+                    # Use Google Custom Search API for LinkedIn queries
+                    query = f'{journalist} {target.medium} LinkedIn'
+                    google_results = self._google_search(query, session, num=3)
+                    combined_text = "\n".join(
+                        f"{r['title']} — {r['snippet']} ({r['link']})"
+                        for r in google_results
+                    ) if google_results else ""
+                    snapshot = self._write_snapshot(f"{target.medium}_linkedin_{self._safe_slug(journalist)}", combined_text)
+                    result = CrawlResult(
+                        medium=target.medium,
+                        source_name="LinkedIn",
+                        source_type="linkedin_source",
+                        url=f"google_cse:{query}",
+                        status_code=200 if google_results else None,
+                        content=combined_text,
+                        snapshot_path=str(snapshot),
+                        error=None if google_results else "keine Google-Ergebnisse",
+                        search_stage="linkedin",
+                        journalist=journalist,
+                    )
+                else:
+                    result = self._fetch(
+                        medium=target.medium,
+                        source_name="LinkedIn",
+                        source_type="linkedin_source",
+                        url=url,
+                        session=session,
+                        search_stage="linkedin",
+                        journalist=journalist,
+                    )
                 results.setdefault(target.medium, []).append(result)
                 if idx < len(candidate_names) - 1:
                     time.sleep(self.crawl_delay_s)
 
             open_web_urls = self._build_open_web_urls(target.medium, candidate_names, profiles)
             for idx, (journalist, url) in enumerate(open_web_urls):
-                result = self._fetch(
-                    medium=target.medium,
-                    source_name="Websuche",
-                    source_type="open_web",
-                    url=url,
-                    session=session,
-                    search_stage="allgemeine_websuche",
-                    journalist=journalist,
-                )
+                if self._google_available:
+                    # Use Google Custom Search API for open web queries
+                    query = f'"{journalist}" "{target.medium}"'
+                    google_results = self._google_search(query, session, num=5)
+                    combined_text = "\n".join(
+                        f"{r['title']} — {r['snippet']} ({r['link']})"
+                        for r in google_results
+                    ) if google_results else ""
+                    snapshot = self._write_snapshot(f"{target.medium}_web_{self._safe_slug(journalist)}", combined_text)
+                    result = CrawlResult(
+                        medium=target.medium,
+                        source_name="Websuche",
+                        source_type="open_web",
+                        url=f"google_cse:{query}",
+                        status_code=200 if google_results else None,
+                        content=combined_text,
+                        snapshot_path=str(snapshot),
+                        error=None if google_results else "keine Google-Ergebnisse",
+                        search_stage="allgemeine_websuche",
+                        journalist=journalist,
+                    )
+                else:
+                    result = self._fetch(
+                        medium=target.medium,
+                        source_name="Websuche",
+                        source_type="open_web",
+                        url=url,
+                        session=session,
+                        search_stage="allgemeine_websuche",
+                        journalist=journalist,
+                    )
                 results.setdefault(target.medium, []).append(result)
                 if idx < len(open_web_urls) - 1:
                     time.sleep(self.crawl_delay_s)
