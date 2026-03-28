@@ -4,7 +4,5 @@ openpyxl
 beautifulsoup4
 lxml
 rapidfuzz
-openai
-
-
+anthropic
 pyyaml
