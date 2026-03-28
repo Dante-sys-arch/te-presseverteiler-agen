@@ -416,9 +416,11 @@ class Crawler:
 
         targets = self.load_targets()
         for target in targets:
-            candidate_names = contacts_by_medium.get(target.medium, [])[:5]
+            all_contacts = contacts_by_medium.get(target.medium, [])
+            domain_research_names = all_contacts[:5]  # Limit domain research to avoid too many page fetches
+            candidate_names = all_contacts  # Use ALL journalists for LinkedIn/web search
             official_urls = self._build_official_urls(target.medium, target.official_urls, profiles)
-            research_urls = self._build_domain_research_urls(target.medium, profiles, candidate_names)
+            research_urls = self._build_domain_research_urls(target.medium, profiles, domain_research_names)
             medium_urls = official_urls + research_urls
             if target.medium in BENCHMARK_MEDIA:
                 required = {"impressum", "redaktion", "team", "kontakt", "autorenseiten", "ressortseiten", "interne_suche"}
@@ -449,9 +451,9 @@ class Crawler:
                 if idx < len(medium_urls) - 1:
                     time.sleep(self.crawl_delay_s)
 
-            for idx, (journalist, url) in enumerate(self._build_linkedin_urls(target.medium, candidate_names, profiles)):
+            for idx, journalist in enumerate(candidate_names):
                 if self._search_available:
-                    # Use Google Custom Search API for LinkedIn queries
+                    # One LinkedIn query per journalist via Serper
                     query = f'{journalist} {target.medium} LinkedIn'
                     search_results = self._web_search(query, session, num=3)
                     combined_text = "\n".join(
@@ -471,56 +473,58 @@ class Crawler:
                         search_stage="linkedin",
                         journalist=journalist,
                     )
-                else:
-                    result = self._fetch(
-                        medium=target.medium,
-                        source_name="LinkedIn",
-                        source_type="linkedin_source",
-                        url=url,
-                        session=session,
-                        search_stage="linkedin",
-                        journalist=journalist,
-                    )
-                results.setdefault(target.medium, []).append(result)
-                if idx < len(candidate_names) - 1:
-                    time.sleep(self.crawl_delay_s)
+                    results.setdefault(target.medium, []).append(result)
+                    time.sleep(0.3)
 
-            open_web_urls = self._build_open_web_urls(target.medium, candidate_names, profiles)
-            for idx, (journalist, url) in enumerate(open_web_urls):
-                if self._search_available:
-                    # Use Google Custom Search API for open web queries
-                    query = f'"{journalist}" "{target.medium}"'
-                    search_results = self._web_search(query, session, num=5)
-                    combined_text = "\n".join(
+                    # One combined web query per journalist via Serper
+                    web_query = f'"{journalist}" "{target.medium}" Redakteur OR Journalist OR Autor OR Editor'
+                    web_results = self._web_search(web_query, session, num=5)
+                    web_text = "\n".join(
                         f"{r['title']} — {r['snippet']} ({r['link']})"
-                        for r in search_results
-                    ) if search_results else ""
-                    snapshot = self._write_snapshot(f"{target.medium}_web_{self._safe_slug(journalist)}", combined_text)
+                        for r in web_results
+                    ) if web_results else ""
+                    snapshot = self._write_snapshot(f"{target.medium}_web_{self._safe_slug(journalist)}", web_text)
                     result = CrawlResult(
                         medium=target.medium,
                         source_name="Websuche",
                         source_type="open_web",
-                        url=f"serper:{query}",
-                        status_code=200 if search_results else None,
-                        content=combined_text,
+                        url=f"serper:{web_query}",
+                        status_code=200 if web_results else None,
+                        content=web_text,
                         snapshot_path=str(snapshot),
-                        error=None if search_results else "keine Serper-Ergebnisse",
+                        error=None if web_results else "keine Serper-Ergebnisse",
                         search_stage="allgemeine_websuche",
                         journalist=journalist,
                     )
+                    results.setdefault(target.medium, []).append(result)
+                    time.sleep(0.3)
                 else:
-                    result = self._fetch(
-                        medium=target.medium,
-                        source_name="Websuche",
-                        source_type="open_web",
-                        url=url,
-                        session=session,
-                        search_stage="allgemeine_websuche",
-                        journalist=journalist,
-                    )
-                results.setdefault(target.medium, []).append(result)
-                if idx < len(open_web_urls) - 1:
-                    time.sleep(self.crawl_delay_s)
+                    # Fallback: old Bing-based approach for first 5 only
+                    if idx < 5:
+                        for _, url in self._build_linkedin_urls(target.medium, [journalist], profiles):
+                            result = self._fetch(
+                                medium=target.medium,
+                                source_name="LinkedIn",
+                                source_type="linkedin_source",
+                                url=url,
+                                session=session,
+                                search_stage="linkedin",
+                                journalist=journalist,
+                            )
+                            results.setdefault(target.medium, []).append(result)
+                            time.sleep(self.crawl_delay_s)
+                        for _, url in self._build_open_web_urls(target.medium, [journalist], profiles):
+                            result = self._fetch(
+                                medium=target.medium,
+                                source_name="Websuche",
+                                source_type="open_web",
+                                url=url,
+                                session=session,
+                                search_stage="allgemeine_websuche",
+                                journalist=journalist,
+                            )
+                            results.setdefault(target.medium, []).append(result)
+                            time.sleep(self.crawl_delay_s)
 
         secondary = self.load_secondary_sources()
         for idx, source in enumerate(secondary):
@@ -541,7 +545,7 @@ class Crawler:
                 time.sleep(self.crawl_delay_s)
 
         for target in targets:
-            candidate_names = contacts_by_medium.get(target.medium, [])[:5]
+            candidate_names = contacts_by_medium.get(target.medium, [])
             for source in secondary:
                 for journalist, source_name, url in self._build_secondary_search_urls(source["name"], candidate_names):
                     if not self._domain_allowed("industry_source", url, rules):
