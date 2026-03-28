@@ -117,12 +117,16 @@ class Matcher:
             r"(?:bei|arbeitet bei|taetig bei|jetzt bei|ist bei|joined|joining)\s+([A-ZÄÖÜ][\wÄÖÜäöüß&()./\- ]{2,80})",
             r"(?:von|wechselte von)\s+[A-ZÄÖÜ][\wÄÖÜäöüß&()./\- ]{2,80}\s+(?:zu|to)\s+([A-ZÄÖÜ][\wÄÖÜäöüß&()./\- ]{2,80})",
         ]
+        garbage = {
+            "tra", "ion", "die", "der", "den", "das", "des", "dem", "und", "ber",
+            "ter", "ung", "eit", "ien", "abe", "her", "ent", "ver", "aus", "ein",
+        }
         for pattern in patterns:
             match = re.search(pattern, normalized, flags=re.IGNORECASE)
             if match:
                 candidate = re.split(r"[,;|]", match.group(1))[0].strip()
                 candidate = re.sub(r"\s{2,}", " ", candidate)
-                if len(candidate) >= 3:
+                if len(candidate) >= 4 and candidate.lower() not in garbage:
                     return candidate
         return ""
 

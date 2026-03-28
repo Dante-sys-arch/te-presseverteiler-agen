@@ -72,10 +72,63 @@ def _normalize(value: str) -> str:
     return re.sub(r"\s+", " ", txt).strip()
 
 
+# Fragments that are clearly not media names
+_GARBAGE_FRAGMENTS = {
+    "tra", "ion", "die", "der", "den", "das", "des", "dem", "und", "ber",
+    "ter", "ung", "eit", "ien", "abe", "her", "ent", "ver", "aus", "ein",
+    "hat", "ist", "von", "mit", "auf", "fur", "vor", "bei", "zum", "zur",
+    "sie", "wir", "ich", "man", "nur", "und", "als", "wie", "was", "wer",
+    "nan", "the", "and", "for", "are", "not", "but", "all", "can",
+}
+
+# Patterns that indicate a person name, not a medium
+_PERSON_NAME_RE = re.compile(r"^[A-ZÄÖÜ][a-zäöüß]+ [A-ZÄÖÜ][a-zäöüß]+$")
+
+
+# Known short media abbreviations that should NOT be filtered
+_KNOWN_SHORT_MEDIA = {
+    "nzz", "faz", "fuw", "baz", "szz", "welt", "zeit", "bild",
+    "stern", "focus", "wiwo", "spiegel", "cash", "bilanz",
+}
+
+
+def _is_plausible_medium(candidate: str) -> bool:
+    """Check if a candidate string looks like an actual medium name."""
+    cleaned = str(candidate or "").strip()
+    if not cleaned:
+        return False
+    # Known short media names are always OK
+    if _normalize(cleaned) in _KNOWN_SHORT_MEDIA:
+        return True
+    # Too short
+    if len(cleaned) < 4:
+        return False
+    # Known garbage
+    if _normalize(cleaned) in _GARBAGE_FRAGMENTS:
+        return False
+    # Starts with lowercase
+    if cleaned[0].islower():
+        return False
+    # Contains URL fragments
+    if any(token in cleaned.lower() for token in ("http", "www.", ".com", ".de", ".ch", "...", "(https")):
+        return False
+    # Is a person name (First Last pattern) — not a medium
+    if _PERSON_NAME_RE.match(cleaned):
+        return False
+    # Only a single very short word
+    words = cleaned.split()
+    if len(words) == 1 and len(cleaned) < 5:
+        return False
+    return True
+
+
 def _is_other_medium(candidate: str, current_medium: str) -> bool:
     c1 = _normalize(candidate)
     c2 = _normalize(current_medium)
-    return bool(c1 and c2 and c1 != c2 and c1 not in c2 and c2 not in c1)
+    if not (c1 and c2 and c1 != c2 and c1 not in c2 and c2 not in c1):
+        return False
+    # Validate that candidate actually looks like a medium name
+    return _is_plausible_medium(candidate)
 
 
 def _extract_linkedin_employer(snippet: str) -> tuple[str, str]:
@@ -110,12 +163,15 @@ def evaluate_hit(
         linkedin_role, linkedin_employer = _extract_linkedin_employer(snippet)
 
     recognized_medium = employer_match.group(1).strip() if employer_match else ""
+    # Validate that recognized medium is plausible (not a garbage fragment)
+    if recognized_medium and not _is_plausible_medium(recognized_medium):
+        recognized_medium = ""
     # Use LinkedIn-extracted employer if standard regex failed
-    if not recognized_medium and linkedin_employer:
+    if not recognized_medium and linkedin_employer and _is_plausible_medium(linkedin_employer):
         recognized_medium = linkedin_employer
     if not recognized_medium and source_type != "linkedin_source":
         for candidate in media_candidates:
-            if len(candidate.split()) <= 5 and any(ch.isalpha() for ch in candidate):
+            if len(candidate.split()) <= 5 and any(ch.isalpha() for ch in candidate) and _is_plausible_medium(candidate):
                 recognized_medium = candidate
                 break
 
