@@ -11,7 +11,7 @@ from diff_engine import DiffEngine
 from matcher import Matcher
 from reporter import Reporter
 from updater import Updater
-from llm_evaluator import evaluate_journalist_snippets, LLMJournalistStatus
+from llm_evaluator import evaluate_journalist_snippets, LLMJournalistStatus, fetch_and_read_url
 from history import annotate_changes, save_snapshot
 
 
@@ -129,6 +129,7 @@ def run_pipeline(base_dir: Path) -> Path:
     # === LLM Evaluation Step ===
     llm_available = bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
     llm_reviewed = 0
+    pages_read = 0
     if llm_available:
         print("[LLM] Claude-basierte Verifizierung aktiv")
         for i, row in enumerate(matched_rows):
@@ -144,20 +145,44 @@ def run_pipeline(base_dir: Path) -> Path:
                 journalist, medium, structured
             )
 
+            # === Deep Page Reading (Punkt 2) ===
+            # For the most important cases, fetch the actual URLs from snippets
+            # and read the full page content with Claude
+            deep_insights = []
+            if linkedin_snippets or web_snippets:
+                all_snippets = linkedin_snippets + web_snippets
+                # Extract URLs from snippets (format: "Title — Snippet (URL)")
+                import re
+                urls_found = []
+                for snippet in all_snippets:
+                    url_match = re.search(r"\(https?://[^\s)]+\)", snippet)
+                    if url_match:
+                        url = url_match.group(0).strip("()")
+                        urls_found.append(url)
+                # Read top 2 most promising URLs
+                for url in urls_found[:2]:
+                    insight = fetch_and_read_url(url, journalist, medium)
+                    if insight:
+                        deep_insights.append(insight)
+                        pages_read += 1
+
+            # Add deep insights to snippets for LLM evaluation
+            enriched_web = web_snippets + [f"[Seitenanalyse] {ins}" for ins in deep_insights]
+
             status = evaluate_journalist_snippets(
                 journalist=journalist,
                 master_medium=medium,
                 master_email=str(row.get("alter_stand", "")).split("|")[0].strip(),
                 master_ressort=str(row.get("alter_stand", "")).split("|")[-1].strip() if "|" in str(row.get("alter_stand", "")) else "",
                 linkedin_snippets=linkedin_snippets,
-                web_snippets=web_snippets,
+                web_snippets=enriched_web,
                 official_page_names=official_names,
             )
 
             matched_rows[i] = _apply_llm_status(row, status)
             llm_reviewed += 1
 
-        print(f"[LLM] {llm_reviewed} Journalisten durch Claude verifiziert")
+        print(f"[LLM] {llm_reviewed} Journalisten durch Claude verifiziert, {pages_read} Seiten gelesen")
     else:
         print("[LLM] Kein ANTHROPIC_API_KEY — überspringe LLM-Verifizierung")
 

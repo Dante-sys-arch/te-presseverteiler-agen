@@ -201,3 +201,56 @@ REGELN:
             status="unklar",
             begruendung=f"LLM-Fehler: {str(exc)[:100]}",
         )
+
+
+def fetch_and_read_url(url: str, journalist: str, current_medium: str) -> str | None:
+    """Fetch a URL and use Claude to extract journalist status from the full page.
+
+    Returns a short summary like 'Arbeitet bei FAZ als Wirtschaftsredakteur' or None.
+    """
+    import requests as _requests
+
+    client = _get_client()
+    if not client:
+        return None
+
+    # Skip non-useful URLs
+    lower_url = url.lower()
+    if any(skip in lower_url for skip in ("google.com", "bing.com", "duckduckgo", "serper")):
+        return None
+
+    try:
+        resp = _requests.get(url, timeout=10, headers={"User-Agent": "te-presseverteiler-agent/2.0"})
+        resp.raise_for_status()
+        # Extract text, strip HTML roughly
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for tag in soup(["script", "style", "nav", "footer", "header"]):
+            tag.decompose()
+        page_text = soup.get_text(separator=" ", strip=True)[:8000]
+    except Exception:
+        return None
+
+    if len(page_text) < 50:
+        return None
+
+    prompt = f"""Lies diese Webseite und beantworte NUR diese Frage:
+Arbeitet {journalist} aktuell bei {current_medium}, oder bei einem anderen Medium/Unternehmen?
+
+Antworte in EINEM Satz, z.B.:
+- "Arbeitet bei {current_medium} als Wirtschaftsredakteur"
+- "Arbeitet jetzt bei Capital als Reporter"
+- "Keine Information über aktuellen Arbeitgeber"
+
+Seitentext:
+{page_text}"""
+
+    try:
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=200,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return response.content[0].text.strip()
+    except Exception:
+        return None

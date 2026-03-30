@@ -586,4 +586,39 @@ class Crawler:
                     results.setdefault(target.medium, []).append(result)
                     time.sleep(self.crawl_delay_s)
 
+        # === Personnel News Search ===
+        # Search for recent personnel changes at DACH media (Punkt 3: Google News Alerts equivalent)
+        if self._search_available:
+            personnel_queries = [
+                "neuer Chefredakteur 2026 Medien Deutschland",
+                "Redaktion Wechsel Journalist 2026 DACH",
+                "verlässt Chefredaktion Zeitung 2026",
+                "neuer Ressortleiter Wirtschaft Finanzen 2026",
+                "Personalien Medien kress turi2 2026",
+                "Chefredakteur wechselt zu 2026",
+                "neue Redaktionsleiterin 2026",
+                "Journalist wechselt Medium Schweiz Österreich 2026",
+            ]
+            for query in personnel_queries:
+                news_results = self._web_search(query, session, num=5)
+                if news_results:
+                    combined_text = "\n".join(
+                        f"{r['title']} — {r['snippet']} ({r['link']})"
+                        for r in news_results
+                    )
+                    snapshot = self._write_snapshot(f"personnel_news_{self._safe_slug(query[:40])}", combined_text)
+                    result = CrawlResult(
+                        medium="(Personalien-Recherche)",
+                        source_name="Personalien-News",
+                        source_type="industry_source",
+                        url=f"serper:{query}",
+                        status_code=200,
+                        content=combined_text,
+                        snapshot_path=str(snapshot),
+                        error=None,
+                        search_stage="personalien_news",
+                    )
+                    results.setdefault("(Personalien-Recherche)", []).append(result)
+                    time.sleep(0.3)
+
         return results
