@@ -93,13 +93,28 @@ _NON_MEDIUM_WORDS = {
     "archiv", "newsletter", "abo", "anzeigen", "karriere",
     "berlin", "frankfurt", "münchen", "hamburg", "wien", "zürich",
     "deutschland", "schweiz", "oesterreich",
+    # Additional non-medium words found in audit
+    "artikel", "articles", "seite", "navigation", "datenschutz",
+    "holding", "weitere", "formular", "suche", "ergebnis",
+    "inhalt", "beitrag", "kommentar", "antwort", "profil",
+    "mitarbeiter", "unternehmen", "firma", "company",
+    "übersicht", "kategorie", "thema", "rubrik",
 }
-
 
 # Known short media abbreviations that should NOT be filtered
 _KNOWN_SHORT_MEDIA = {
     "nzz", "faz", "fuw", "baz", "szz", "welt", "zeit", "bild",
     "stern", "focus", "wiwo", "spiegel", "cash", "bilanz",
+}
+
+# Known multi-word media names that contain words that would otherwise be filtered
+_KNOWN_MEDIA_NAMES = {
+    "institutional money", "portfolio institutionell", "börse online",
+    "the market", "focus money", "finance forward", "digital business",
+    "das investment", "fonds professionell", "euro am sonntag",
+    "welt am sonntag", "frankfurter rundschau", "rheinische post",
+    "berliner zeitung", "stuttgarter zeitung", "manager magazin",
+    "wirtschaftswoche", "private banker", "der aktionär",
 }
 
 
@@ -108,25 +123,29 @@ def _is_plausible_medium(candidate: str) -> bool:
     cleaned = str(candidate or "").strip()
     if not cleaned:
         return False
+    cleaned_lower = cleaned.lower()
     # Known short media names are always OK
     if _normalize(cleaned) in _KNOWN_SHORT_MEDIA:
+        return True
+    # Known multi-word media names are always OK
+    if cleaned_lower in _KNOWN_MEDIA_NAMES:
+        return True
+    # Check if it's a known multi-word media name (exact match or very close)
+    if any(cleaned_lower == known or known.startswith(cleaned_lower + " ") or known.endswith(" " + cleaned_lower) for known in _KNOWN_MEDIA_NAMES):
         return True
     # Too short
     if len(cleaned) < 4:
         return False
-    # Known garbage
+    # Known garbage fragments
     if _normalize(cleaned) in _GARBAGE_FRAGMENTS:
         return False
-    # Common non-medium words
-    if cleaned.lower().strip() in _NON_MEDIUM_WORDS:
-        return False
-    # Starts with lowercase
-    if cleaned[0].islower():
+    # Exact match with non-medium words (case-insensitive)
+    if cleaned_lower in _NON_MEDIUM_WORDS:
         return False
     # Contains URL fragments
-    if any(token in cleaned.lower() for token in ("http", "www.", ".com", ".de", ".ch", "...", "(https")):
+    if any(token in cleaned_lower for token in ("http", "www.", ".com", ".de", ".ch", "...", "(https")):
         return False
-    # Is a person name (First Last pattern) — not a medium
+    # Is a person name (First Last pattern with both parts capitalized) — not a medium
     if _PERSON_NAME_RE.match(cleaned):
         return False
     # Only a single very short word
