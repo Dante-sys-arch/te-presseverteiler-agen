@@ -181,6 +181,23 @@ def run_pipeline(base_dir: Path) -> Path:
         web_research_detail_rows=web_research_detail_rows,
         treffer_auswertung_detail_rows=treffer_auswertung_detail_rows,
     )
+
+    # === Dashboard JSON Export ===
+    import json
+    from datetime import datetime, timezone
+    docs_dir = base_dir / "docs"
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    dashboard_data = {
+        "scan_date": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        "total": len(delta_rows),
+        "rows": delta_rows,
+    }
+    (docs_dir / "dashboard.json").write_text(
+        json.dumps(dashboard_data, ensure_ascii=False, default=str),
+        encoding="utf-8",
+    )
+    print(f"[Dashboard] JSON exportiert: docs/dashboard.json ({len(delta_rows)} Zeilen)")
+
     return report_path
 
 

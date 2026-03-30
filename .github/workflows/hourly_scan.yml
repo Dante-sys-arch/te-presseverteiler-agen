@@ -23,12 +23,12 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
         run: python src/pipeline.py
-      - name: Commit history snapshot
+      - name: Commit dashboard and history
         run: |
           git config user.name "Presseverteiler Agent"
           git config user.email "agent@te-communications.com"
-          git add history/
-          git diff --staged --quiet || git commit -m "📊 History snapshot $(date +%Y-%m-%d)"
+          git add history/ docs/dashboard.json
+          git diff --staged --quiet || git commit -m "📊 Dashboard + History update $(date +%Y-%m-%d)"
           git push
       - name: Upload Excel report artifact
         uses: actions/upload-artifact@v4
