@@ -84,6 +84,17 @@ _GARBAGE_FRAGMENTS = {
 # Patterns that indicate a person name, not a medium
 _PERSON_NAME_RE = re.compile(r"^[A-ZÄÖÜ][a-zäöüß]+ [A-ZÄÖÜ][a-zäöüß]+$")
 
+# Common words that look like media names but aren't
+_NON_MEDIUM_WORDS = {
+    "redaktion", "impressum", "kontakt", "service", "team", "verlag",
+    "autor", "autorin", "editor", "presse", "media", "digital",
+    "wirtschaft", "politik", "kultur", "sport", "finanzen", "panorama",
+    "meinung", "ressort", "nachrichten", "aktuell", "startseite",
+    "archiv", "newsletter", "abo", "anzeigen", "karriere",
+    "berlin", "frankfurt", "münchen", "hamburg", "wien", "zürich",
+    "deutschland", "schweiz", "oesterreich",
+}
+
 
 # Known short media abbreviations that should NOT be filtered
 _KNOWN_SHORT_MEDIA = {
@@ -105,6 +116,9 @@ def _is_plausible_medium(candidate: str) -> bool:
         return False
     # Known garbage
     if _normalize(cleaned) in _GARBAGE_FRAGMENTS:
+        return False
+    # Common non-medium words
+    if cleaned.lower().strip() in _NON_MEDIUM_WORDS:
         return False
     # Starts with lowercase
     if cleaned[0].islower():
@@ -186,7 +200,7 @@ def evaluate_hit(
 
     recognized_employer = recognized_medium
 
-    has_profile_context = bool(STRONG_PROFILE_RE.search(snippet)) or source_type in {"linkedin_source", "industry_source"}
+    has_profile_context = bool(STRONG_PROFILE_RE.search(snippet)) or source_type in {"linkedin_source", "industry_source"} or bool(employer_match)
     weak_only = bool(WEAK_CONTEXT_RE.search(snippet)) and not has_profile_context
     medium_change = _is_other_medium(recognized_medium, current_medium)
 
