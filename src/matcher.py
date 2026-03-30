@@ -581,6 +581,7 @@ class Matcher:
                 industry_mentions = self._industry_mentions(self._name(master), industry_documents)
                 linkedin_mentions = self._find_documents_with_name(self._name(master), industry_documents, "linkedin_source")
                 open_web_mentions = self._find_documents_with_name(self._name(master), industry_documents, "open_web")
+                social_media_mentions = self._find_documents_with_name(self._name(master), industry_documents, "social_media")
                 evaluated_linkedin = [
                     evaluate_hit(
                         text=str(doc.get("text", "")),
@@ -599,6 +600,18 @@ class Matcher:
                     )
                     for doc in open_web_mentions
                 ]
+                evaluated_social = [
+                    evaluate_hit(
+                        text=str(doc.get("text", "")),
+                        source_type="open_web",  # Treat social as open_web for evaluation
+                        source_name=str(doc.get("source_name", "Twitter/X")),
+                        current_medium=medium,
+                    )
+                    for doc in social_media_mentions
+                ]
+                # Merge social media into open_web for downstream logic
+                open_web_mentions = open_web_mentions + social_media_mentions
+                evaluated_web = evaluated_web + evaluated_social
                 evaluated_industry = [
                     evaluate_hit(
                         text=str(hint.get("detail", "")),

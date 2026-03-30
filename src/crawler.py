@@ -498,6 +498,30 @@ class Crawler:
                     )
                     results.setdefault(target.medium, []).append(result)
                     time.sleep(0.3)
+
+                    # One Twitter/X bio query per journalist via Serper
+                    twitter_query = f'"{journalist}" site:x.com OR site:twitter.com Journalist OR Redakteur OR Reporter'
+                    twitter_results = self._web_search(twitter_query, session, num=3)
+                    twitter_text = "\n".join(
+                        f"{r['title']} — {r['snippet']} ({r['link']})"
+                        for r in twitter_results
+                    ) if twitter_results else ""
+                    if twitter_text:
+                        snapshot = self._write_snapshot(f"{target.medium}_twitter_{self._safe_slug(journalist)}", twitter_text)
+                        result = CrawlResult(
+                            medium=target.medium,
+                            source_name="Twitter/X",
+                            source_type="social_media",
+                            url=f"serper:{twitter_query}",
+                            status_code=200,
+                            content=twitter_text,
+                            snapshot_path=str(snapshot),
+                            error=None,
+                            search_stage="social_media",
+                            journalist=journalist,
+                        )
+                        results.setdefault(target.medium, []).append(result)
+                        time.sleep(0.3)
                 else:
                     # Fallback: old Bing-based approach for first 5 only
                     if idx < 5:

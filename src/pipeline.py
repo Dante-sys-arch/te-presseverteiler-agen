@@ -12,6 +12,7 @@ from matcher import Matcher
 from reporter import Reporter
 from updater import Updater
 from llm_evaluator import evaluate_journalist_snippets, LLMJournalistStatus
+from history import annotate_changes, save_snapshot
 
 
 def _needs_llm_review(row: dict) -> bool:
@@ -162,6 +163,13 @@ def run_pipeline(base_dir: Path) -> Path:
 
     delta_rows = diff_engine.build_delta_rows(matched_rows)
     unscanned_rows = diff_engine.build_unscanned_rows(not_scanned_master_rows)
+
+    # === Historical Comparison ===
+    delta_rows = annotate_changes(delta_rows)
+    snapshot_path = save_snapshot(delta_rows)
+    changed = sum(1 for r in delta_rows if r.get("Veraenderung_seit_gestern") in ("NEU", "VERAENDERT"))
+    unchanged = sum(1 for r in delta_rows if r.get("Veraenderung_seit_gestern") == "UNVERAENDERT")
+    print(f"[History] {changed} verändert, {unchanged} unverändert seit letztem Scan. Snapshot: {snapshot_path}")
 
     _update_plan = updater.prepare(approved_changes={"delta": delta_rows})
     report_path = reporter.write(

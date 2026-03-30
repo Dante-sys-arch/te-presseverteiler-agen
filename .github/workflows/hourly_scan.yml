@@ -17,12 +17,19 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Ensure runtime directories
-        run: mkdir -p reports snapshots backups
+        run: mkdir -p reports snapshots backups history
       - name: Run pipeline
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
         run: python src/pipeline.py
+      - name: Commit history snapshot
+        run: |
+          git config user.name "Presseverteiler Agent"
+          git config user.email "agent@te-communications.com"
+          git add history/
+          git diff --staged --quiet || git commit -m "📊 History snapshot $(date +%Y-%m-%d)"
+          git push
       - name: Upload Excel report artifact
         uses: actions/upload-artifact@v4
         with:

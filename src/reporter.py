@@ -9,6 +9,8 @@ import pandas as pd
 
 
 MAIN_COLUMNS = [
+    "Veraenderung_seit_gestern",
+    "Veraenderung_detail",
     "Medium",
     "Journalist",
     "Im_Master",

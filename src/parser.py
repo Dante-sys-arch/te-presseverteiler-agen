@@ -284,7 +284,7 @@ class Parser:
                             "text": text[:15000],
                         }
                     )
-                elif source_type in {"linkedin_source", "open_web"}:
+                elif source_type in {"linkedin_source", "open_web", "social_media"}:
                     industry_hints.extend(
                         self._extract_industry_hints(
                             text,
@@ -316,6 +316,7 @@ class Parser:
                 "branchenquelle": False,
                 "linkedin": False,
                 "allgemeine_websuche": False,
+                "social_media": False,
             }
             for snapshot in snapshots:
                 source_type = getattr(snapshot, "source_type", "")
@@ -331,6 +332,8 @@ class Parser:
                     cascaded_stages["linkedin"] = True
                 if source_type == "open_web":
                     cascaded_stages["allgemeine_websuche"] = True
+                if source_type == "social_media":
+                    cascaded_stages["social_media"] = True
                 if search_stage in cascaded_stages:
                     cascaded_stages[search_stage] = True
 
