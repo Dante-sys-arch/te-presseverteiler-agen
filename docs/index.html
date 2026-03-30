@@ -6,517 +6,98 @@
 <title>TE Presseverteiler Monitor</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-:root {
-  --te-primary: #006A9D;
-  --te-dark: #004D73;
-  --te-light: #E8F4FA;
-  --te-accent: #00A3E0;
-  --bg: #F7F8FA;
-  --card: #FFFFFF;
-  --text: #1A2B3C;
-  --text-muted: #6B7D8E;
-  --border: #E2E8F0;
-  --green: #059669;
-  --green-bg: #ECFDF5;
-  --red: #DC2626;
-  --red-bg: #FEF2F2;
-  --amber: #D97706;
-  --amber-bg: #FFFBEB;
-  --blue: #2563EB;
-  --blue-bg: #EFF6FF;
-  --purple: #7C3AED;
-  --purple-bg: #F5F3FF;
-}
-
-* { margin: 0; padding: 0; box-sizing: border-box; }
-
-body {
-  font-family: 'DM Sans', -apple-system, sans-serif;
-  background: var(--bg);
-  color: var(--text);
-  line-height: 1.5;
-}
-
-.header {
-  background: linear-gradient(135deg, var(--te-primary) 0%, var(--te-dark) 100%);
-  color: white;
-  padding: 2rem 2rem 1.5rem;
-  position: relative;
-  overflow: hidden;
-}
-
-.header::after {
-  content: '';
-  position: absolute;
-  top: -50%;
-  right: -20%;
-  width: 60%;
-  height: 200%;
-  background: radial-gradient(ellipse, rgba(255,255,255,0.06) 0%, transparent 70%);
-  pointer-events: none;
-}
-
-.header-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
-}
-
-.logo {
-  font-size: 0.75rem;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  opacity: 0.7;
-  font-weight: 500;
-}
-
-.sync-btn {
-  background: rgba(255,255,255,0.15);
-  border: 1px solid rgba(255,255,255,0.25);
-  color: white;
-  padding: 0.5rem 1rem;
-  border-radius: 8px;
-  font-family: inherit;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.sync-btn:hover { background: rgba(255,255,255,0.25); }
-.sync-btn.loading { opacity: 0.6; pointer-events: none; }
-
-.header h1 {
-  font-size: 1.5rem;
-  font-weight: 700;
-  margin-bottom: 0.25rem;
-}
-
-.header .subtitle {
-  font-size: 0.9rem;
-  opacity: 0.75;
-}
-
-.stats-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 0.75rem;
-  padding: 1rem 2rem;
-  margin-top: -1rem;
-  position: relative;
-  z-index: 1;
-}
-
-.stat-card {
-  background: var(--card);
-  border-radius: 12px;
-  padding: 1rem;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
-  text-align: center;
-}
-
-.stat-value {
-  font-size: 1.75rem;
-  font-weight: 700;
-  font-family: 'JetBrains Mono', monospace;
-}
-
-.stat-label {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
-  margin-top: 0.25rem;
-}
-
-.stat-card.green .stat-value { color: var(--green); }
-.stat-card.red .stat-value { color: var(--red); }
-.stat-card.amber .stat-value { color: var(--amber); }
-.stat-card.blue .stat-value { color: var(--blue); }
-.stat-card.purple .stat-value { color: var(--purple); }
-
-.content { padding: 1rem 2rem 2rem; }
-
-.tabs {
-  display: flex;
-  gap: 0.25rem;
-  margin-bottom: 1rem;
-  border-bottom: 2px solid var(--border);
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-.tab {
-  padding: 0.6rem 1rem;
-  font-size: 0.85rem;
-  font-weight: 500;
-  color: var(--text-muted);
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -2px;
-  white-space: nowrap;
-  transition: all 0.2s;
-  background: none;
-  border-top: none;
-  border-left: none;
-  border-right: none;
-  font-family: inherit;
-}
-
-.tab:hover { color: var(--text); }
-.tab.active { color: var(--te-primary); border-bottom-color: var(--te-primary); font-weight: 600; }
-
-.tab .badge {
-  display: inline-block;
-  background: var(--te-light);
-  color: var(--te-primary);
-  font-size: 0.7rem;
-  font-weight: 600;
-  padding: 0.1rem 0.4rem;
-  border-radius: 10px;
-  margin-left: 0.4rem;
-  font-family: 'JetBrains Mono', monospace;
-}
-
-.filter-bar {
-  display: flex;
-  gap: 0.75rem;
-  margin-bottom: 1rem;
-  flex-wrap: wrap;
-}
-
-.search-input {
-  flex: 1;
-  min-width: 200px;
-  padding: 0.6rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-family: inherit;
-  font-size: 0.85rem;
-  outline: none;
-  transition: border-color 0.2s;
-}
-
-.search-input:focus { border-color: var(--te-accent); }
-
-.filter-select {
-  padding: 0.6rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-family: inherit;
-  font-size: 0.85rem;
-  background: white;
-  outline: none;
-  cursor: pointer;
-}
-
-.table-wrap {
-  background: var(--card);
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.82rem;
-  min-width: 900px;
-}
-
-thead th {
-  background: var(--bg);
-  padding: 0.7rem 0.75rem;
-  text-align: left;
-  font-weight: 600;
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  border-bottom: 2px solid var(--border);
-  position: sticky;
-  top: 0;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-thead th:hover { color: var(--text); }
-
-tbody td {
-  padding: 0.6rem 0.75rem;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-}
-
-tbody tr:hover { background: var(--te-light); }
-
-.badge-cell {
-  display: inline-block;
-  padding: 0.15rem 0.5rem;
-  border-radius: 6px;
-  font-size: 0.72rem;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.badge-confirmed { background: var(--green-bg); color: var(--green); }
-.badge-changed { background: var(--red-bg); color: var(--red); }
-.badge-weak { background: var(--amber-bg); color: var(--amber); }
-.badge-notfound { background: #F1F5F9; color: #64748B; }
-.badge-check { background: var(--blue-bg); color: var(--blue); }
-.badge-linkedin { background: var(--blue-bg); color: var(--blue); }
-.badge-new { background: var(--purple-bg); color: var(--purple); }
-.badge-unchanged { background: #F1F5F9; color: #94A3B8; }
-
-.empty-state {
-  text-align: center;
-  padding: 4rem 2rem;
-  color: var(--text-muted);
-}
-
-.empty-state h3 { font-size: 1.1rem; margin-bottom: 0.5rem; color: var(--text); }
-
-.footer {
-  text-align: center;
-  padding: 2rem;
-  font-size: 0.75rem;
-  color: var(--text-muted);
-}
-
-@media (max-width: 768px) {
-  .header { padding: 1.5rem 1rem 1rem; }
-  .stats-row { padding: 1rem; grid-template-columns: repeat(3, 1fr); }
-  .content { padding: 1rem; }
-  .stat-value { font-size: 1.3rem; }
-  .filter-bar { flex-direction: column; }
-}
+:root{--te:#006A9D;--te-dk:#004D73;--te-lt:#F0F7FB;--bg:#FFF;--txt:#1A2B3C;--mut:#7A8B9C;--bdr:#E8ECF0;--g:#0D9668;--gbg:#F0FAF6;--gbd:#B4E4D0;--r:#C93B3B;--rbg:#FDF2F2;--rbd:#F0BFBF;--a:#B8860B;--abg:#FDF8EE;--abd:#E8D5A8;--bl:#2563EB;--blbg:#F0F4FE;--blbd:#B8CCF7;--p:#6D28D9;--pbg:#F5F0FE;--pbd:#CBBAF5;--g50:#F8F9FA;--g100:#F1F3F5;--g200:#E8ECF0;--g400:#A0ADB8}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:var(--txt);line-height:1.55}
+.hdr{background:var(--bg);border-bottom:1px solid var(--bdr);padding:1.75rem 2rem 1.25rem}
+.hdr-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem}
+.logo{font-size:.65rem;letter-spacing:.25em;text-transform:uppercase;color:var(--te);font-weight:600}
+.sync{background:var(--bg);border:1px solid var(--te);color:var(--te);padding:.45rem .9rem;border-radius:6px;font-family:inherit;font-size:.8rem;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:.4rem;transition:all .15s}
+.sync:hover{background:var(--te-lt)}.sync.ld{opacity:.5;pointer-events:none}
+.hdr h1{font-size:1.35rem;font-weight:700;letter-spacing:-.01em}
+.hdr .sub{font-size:.82rem;color:var(--mut);margin-top:.15rem}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.6rem;padding:1.25rem 2rem;border-bottom:1px solid var(--bdr)}
+.sc{background:var(--bg);border:1px solid var(--bdr);border-radius:8px;padding:.85rem .75rem;text-align:center;transition:border-color .15s}
+.sc:hover{border-color:var(--te)}
+.sv{font-size:1.6rem;font-weight:700;font-family:'JetBrains Mono',monospace;line-height:1.2}
+.sl{font-size:.65rem;text-transform:uppercase;letter-spacing:.1em;color:var(--mut);margin-top:.2rem;font-weight:500}
+.sc.green .sv{color:var(--g)}.sc.green{border-color:var(--gbd);background:var(--gbg)}
+.sc.red .sv{color:var(--r)}.sc.red{border-color:var(--rbd);background:var(--rbg)}
+.sc.amber .sv{color:var(--a)}.sc.amber{border-color:var(--abd);background:var(--abg)}
+.sc.blue .sv{color:var(--bl)}.sc.blue{border-color:var(--blbd);background:var(--blbg)}
+.sc.purple .sv{color:var(--p)}.sc.purple{border-color:var(--pbd);background:var(--pbg)}
+.cnt{padding:1.25rem 2rem 2rem}
+.tabs{display:flex;gap:.15rem;margin-bottom:1.25rem;border-bottom:1px solid var(--bdr);overflow-x:auto;-webkit-overflow-scrolling:touch}
+.tab{padding:.6rem .9rem;font-size:.82rem;font-weight:500;color:var(--mut);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;transition:all .15s;background:none;border-top:none;border-left:none;border-right:none;font-family:inherit}
+.tab:hover{color:var(--txt)}.tab.act{color:var(--te);border-bottom-color:var(--te);font-weight:600}
+.tab .bd{display:inline-block;background:var(--te-lt);color:var(--te);font-size:.68rem;font-weight:600;padding:.1rem .4rem;border-radius:8px;margin-left:.35rem;font-family:'JetBrains Mono',monospace}
+.fb{display:flex;gap:.6rem;margin-bottom:1rem;flex-wrap:wrap}
+.si{flex:1;min-width:200px;padding:.55rem .85rem;border:1px solid var(--bdr);border-radius:6px;font-family:inherit;font-size:.82rem;outline:none;transition:border-color .15s;background:var(--bg)}
+.si:focus{border-color:var(--te);box-shadow:0 0 0 2px rgba(0,106,157,.08)}
+.fs{padding:.55rem .85rem;border:1px solid var(--bdr);border-radius:6px;font-family:inherit;font-size:.82rem;background:var(--bg);outline:none;cursor:pointer}
+.tw{border:1px solid var(--bdr);border-radius:8px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:.8rem;min-width:950px}
+thead th{background:var(--g50);padding:.65rem .7rem;text-align:left;font-weight:600;font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);border-bottom:1px solid var(--bdr);position:sticky;top:0;white-space:nowrap;cursor:pointer;user-select:none}
+thead th:hover{color:var(--te)}
+tbody td{padding:.55rem .7rem;border-bottom:1px solid var(--g100);vertical-align:top}
+tbody tr:hover{background:var(--g50)}tbody tr:last-child td{border-bottom:none}
+.bc{display:inline-block;padding:.12rem .45rem;border-radius:4px;font-size:.7rem;font-weight:600;white-space:nowrap;letter-spacing:.01em}
+.b-ok{background:var(--gbg);color:var(--g);border:1px solid var(--gbd)}
+.b-ch{background:var(--rbg);color:var(--r);border:1px solid var(--rbd)}
+.b-wk{background:var(--abg);color:var(--a);border:1px solid var(--abd)}
+.b-nf{background:var(--g100);color:var(--g400);border:1px solid var(--g200)}
+.b-li{background:var(--blbg);color:var(--bl);border:1px solid var(--blbd)}
+.b-nw{background:var(--pbg);color:var(--p);border:1px solid var(--pbd)}
+.b-un{background:var(--g100);color:var(--g400);border:1px solid var(--g200)}
+.kb{display:inline-flex;align-items:center;gap:.3rem;font-size:.7rem;font-family:'JetBrains Mono',monospace;font-weight:500}
+.kd{width:7px;height:7px;border-radius:50%;display:inline-block}
+.kh{background:var(--g)}.km{background:var(--a)}.kl{background:var(--r)}
+.es{text-align:center;padding:3.5rem 2rem;color:var(--mut)}
+.es h3{font-size:1rem;margin-bottom:.35rem;color:var(--txt)}
+.ft{text-align:center;padding:1.5rem 2rem;font-size:.7rem;color:var(--g400);border-top:1px solid var(--bdr);letter-spacing:.02em}
+@media(max-width:768px){.hdr{padding:1.25rem 1rem 1rem}.stats{padding:.75rem 1rem;grid-template-columns:repeat(3,1fr)}.cnt{padding:1rem}.sv{font-size:1.2rem}.fb{flex-direction:column}}
 </style>
 </head>
 <body>
-
-<div class="header">
-  <div class="header-top">
-    <div class="logo">TE Communications</div>
-    <button class="sync-btn" onclick="loadData()">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
-      Sync
-    </button>
-  </div>
-  <h1>Presseverteiler Monitor</h1>
-  <div class="subtitle" id="scan-info">Lade Daten...</div>
-</div>
-
-<div class="stats-row">
-  <div class="stat-card green"><div class="stat-value" id="stat-confirmed">—</div><div class="stat-label">Bestätigt</div></div>
-  <div class="stat-card red"><div class="stat-value" id="stat-changed">—</div><div class="stat-label">Medienwechsel</div></div>
-  <div class="stat-card amber"><div class="stat-value" id="stat-weak">—</div><div class="stat-label">Prüfen</div></div>
-  <div class="stat-card blue"><div class="stat-value" id="stat-linkedin">—</div><div class="stat-label">LinkedIn</div></div>
-  <div class="stat-card purple"><div class="stat-value" id="stat-delta">—</div><div class="stat-label">Verändert</div></div>
-  <div class="stat-card"><div class="stat-value" id="stat-total">—</div><div class="stat-label">Gesamt</div></div>
-</div>
-
-<div class="content">
-  <div class="tabs">
-    <button class="tab active" data-tab="all">Alle</button>
-    <button class="tab" data-tab="changed">Medienwechsel <span class="badge" id="tab-changed">0</span></button>
-    <button class="tab" data-tab="confirmed">Bestätigt <span class="badge" id="tab-confirmed">0</span></button>
-    <button class="tab" data-tab="weak">Prüfen <span class="badge" id="tab-weak">0</span></button>
-    <button class="tab" data-tab="delta">Verändert <span class="badge" id="tab-delta">0</span></button>
-  </div>
-
-  <div class="filter-bar">
-    <input class="search-input" type="text" id="search" placeholder="Journalist oder Medium suchen...">
-    <select class="filter-select" id="medium-filter">
-      <option value="">Alle Medien</option>
-    </select>
-  </div>
-
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th data-sort="delta">Δ</th>
-          <th data-sort="medium">Medium</th>
-          <th data-sort="journalist">Journalist</th>
-          <th data-sort="status">Status</th>
-          <th data-sort="neues_medium">Neues Medium</th>
-          <th data-sort="linkedin">LinkedIn</th>
-          <th data-sort="aktion">Aktion</th>
-          <th>Kommentar</th>
-        </tr>
-      </thead>
-      <tbody id="table-body"></tbody>
-    </table>
-  </div>
-  <div class="empty-state" id="empty" style="display:none">
-    <h3>Keine Einträge</h3>
-    <p>Für diese Filter wurden keine Ergebnisse gefunden.</p>
-  </div>
-</div>
-
-<div class="footer">
-  TE Communications GmbH — Frankfurt · Zürich · St. Gallen · Lausanne
-</div>
-
+<div class="hdr"><div class="hdr-top"><div class="logo">TE Communications</div><button class="sync" onclick="ld()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>Sync</button></div><h1>Presseverteiler Monitor</h1><div class="sub" id="si">Lade Daten...</div></div>
+<div class="stats"><div class="sc green"><div class="sv" id="s1">—</div><div class="sl">Bestätigt</div></div><div class="sc red"><div class="sv" id="s2">—</div><div class="sl">Wechsel</div></div><div class="sc amber"><div class="sv" id="s3">—</div><div class="sl">Prüfen</div></div><div class="sc blue"><div class="sv" id="s4">—</div><div class="sl">LinkedIn</div></div><div class="sc purple"><div class="sv" id="s5">—</div><div class="sl">Verändert</div></div><div class="sc"><div class="sv" id="s6">—</div><div class="sl">Gesamt</div></div></div>
+<div class="cnt"><div class="tabs"><button class="tab act" data-tab="all">Alle</button><button class="tab" data-tab="changed">Wechsel <span class="bd" id="t1">0</span></button><button class="tab" data-tab="confirmed">Bestätigt <span class="bd" id="t2">0</span></button><button class="tab" data-tab="weak">Prüfen <span class="bd" id="t3">0</span></button><button class="tab" data-tab="delta">Verändert <span class="bd" id="t4">0</span></button></div>
+<div class="fb"><input class="si" type="text" id="q" placeholder="Journalist oder Medium suchen..."><select class="fs" id="mf"><option value="">Alle Medien</option></select></div>
+<div class="tw"><table><thead><tr><th data-sort="delta">Δ</th><th data-sort="medium">Medium</th><th data-sort="journalist">Journalist</th><th data-sort="status">Status</th><th data-sort="konfidenz">Konfidenz</th><th data-sort="neues_medium">Neues Medium</th><th data-sort="linkedin">LinkedIn</th><th data-sort="aktion">Aktion</th><th>Kommentar</th></tr></thead><tbody id="tb"></tbody></table></div>
+<div class="es" id="em" style="display:none"><h3>Keine Einträge</h3><p>Für diese Filter wurden keine Ergebnisse gefunden.</p></div></div>
+<div class="ft">TE Communications GmbH — Frankfurt · Zürich · St. Gallen · Lausanne</div>
 <script>
-const REPO = 'Dante-sys-arch/te-presseverteiler-agen';
-const BRANCH = 'main';
-let DATA = [];
-let SORT = { col: 'medium', dir: 'asc' };
-let ACTIVE_TAB = 'all';
-
-function classifyStatus(was) {
-  if (!was) return 'unknown';
-  if (was.includes('Medienwechsel') || was.includes('anderem Medium') || was.includes('LinkedIn bestaetigt neues Medium')) return 'changed';
-  if (was.includes('bestaetigt')) return 'confirmed';
-  if (was.includes('schwacher Hinweis') || was.includes('Weitere Quelle') || was.includes('Nichts Belastbares')) return 'weak';
-  if (was.includes('nicht erreichbar') || was.includes('nicht mehr aktiv')) return 'error';
-  return 'check';
-}
-
-function statusBadge(was) {
-  const cls = classifyStatus(was);
-  const labels = { changed: 'Medienwechsel', confirmed: 'Bestätigt', weak: 'Prüfen', error: 'Fehler', check: 'Prüfen', unknown: '—' };
-  const badges = { changed: 'badge-changed', confirmed: 'badge-confirmed', weak: 'badge-weak', error: 'badge-notfound', check: 'badge-check', unknown: 'badge-unchanged' };
-  return `<span class="badge-cell ${badges[cls]}">${labels[cls]}</span>`;
-}
-
-function deltaBadge(d) {
-  if (!d) return '';
-  const map = { 'VERAENDERT': 'badge-new', 'NEU': 'badge-linkedin', 'UNVERAENDERT': 'badge-unchanged', 'ERSTLAUF': 'badge-unchanged' };
-  return `<span class="badge-cell ${map[d] || 'badge-unchanged'}">${d}</span>`;
-}
-
-function renderTable() {
-  let rows = [...DATA];
-  const search = document.getElementById('search').value.toLowerCase();
-  const medium = document.getElementById('medium-filter').value;
-
-  if (search) rows = rows.filter(r => (r.Journalist || '').toLowerCase().includes(search) || (r.Medium || '').toLowerCase().includes(search));
-  if (medium) rows = rows.filter(r => r.Medium === medium);
-
-  if (ACTIVE_TAB === 'changed') rows = rows.filter(r => classifyStatus(r.Was_ist_anders) === 'changed');
-  else if (ACTIVE_TAB === 'confirmed') rows = rows.filter(r => classifyStatus(r.Was_ist_anders) === 'confirmed');
-  else if (ACTIVE_TAB === 'weak') rows = rows.filter(r => ['weak', 'check'].includes(classifyStatus(r.Was_ist_anders)));
-  else if (ACTIVE_TAB === 'delta') rows = rows.filter(r => ['VERAENDERT', 'NEU'].includes(r.Veraenderung_seit_gestern));
-
-  rows.sort((a, b) => {
-    const va = (a[SORT.col] || '').toString().toLowerCase();
-    const vb = (b[SORT.col] || '').toString().toLowerCase();
-    return SORT.dir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
-  });
-
-  const tbody = document.getElementById('table-body');
-  const empty = document.getElementById('empty');
-
-  if (!rows.length) {
-    tbody.innerHTML = '';
-    empty.style.display = 'block';
-    return;
-  }
-
-  empty.style.display = 'none';
-  tbody.innerHTML = rows.map(r => `<tr>
-    <td>${deltaBadge(r.Veraenderung_seit_gestern)}</td>
-    <td><strong>${r.Medium || ''}</strong></td>
-    <td>${r.Journalist || ''}</td>
-    <td>${statusBadge(r.Was_ist_anders)}</td>
-    <td>${r.Neues_Medium_Hinweis || r.Gefunden_bei || ''}</td>
-    <td>${r.LinkedIn_Hinweis === 'Ja' ? '<span class="badge-cell badge-linkedin">LinkedIn</span>' : ''}</td>
-    <td><span class="badge-cell badge-check">${r.Empfohlene_Aktion || ''}</span></td>
-    <td style="max-width:250px;font-size:0.75rem;color:var(--text-muted)">${(r.Kommentar || '').slice(0, 120)}</td>
-  </tr>`).join('');
-}
-
-function updateStats() {
-  const confirmed = DATA.filter(r => classifyStatus(r.Was_ist_anders) === 'confirmed').length;
-  const changed = DATA.filter(r => classifyStatus(r.Was_ist_anders) === 'changed').length;
-  const weak = DATA.filter(r => ['weak', 'check'].includes(classifyStatus(r.Was_ist_anders))).length;
-  const linkedin = DATA.filter(r => r.LinkedIn_Hinweis === 'Ja').length;
-  const delta = DATA.filter(r => ['VERAENDERT', 'NEU'].includes(r.Veraenderung_seit_gestern)).length;
-
-  document.getElementById('stat-confirmed').textContent = confirmed;
-  document.getElementById('stat-changed').textContent = changed;
-  document.getElementById('stat-weak').textContent = weak;
-  document.getElementById('stat-linkedin').textContent = linkedin;
-  document.getElementById('stat-delta').textContent = delta;
-  document.getElementById('stat-total').textContent = DATA.length;
-
-  document.getElementById('tab-changed').textContent = changed;
-  document.getElementById('tab-confirmed').textContent = confirmed;
-  document.getElementById('tab-weak').textContent = weak;
-  document.getElementById('tab-delta').textContent = delta;
-
-  const media = [...new Set(DATA.map(r => r.Medium).filter(Boolean))].sort();
-  const sel = document.getElementById('medium-filter');
-  const current = sel.value;
-  sel.innerHTML = '<option value="">Alle Medien</option>' + media.map(m => `<option value="${m}">${m}</option>`).join('');
-  sel.value = current;
-}
-
-async function loadData() {
-  const btn = document.querySelector('.sync-btn');
-  btn.classList.add('loading');
-  btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg> Laden...';
-
-  try {
-    // Try loading dashboard.json from repo
-    const res = await fetch(`https://raw.githubusercontent.com/${REPO}/${BRANCH}/docs/dashboard.json?t=${Date.now()}`);
-    if (res.ok) {
-      const json = await res.json();
-      DATA = json.rows || [];
-      document.getElementById('scan-info').textContent = `Letzter Scan: ${json.scan_date || 'unbekannt'} — ${DATA.length} Journalisten`;
-    } else {
-      document.getElementById('scan-info').textContent = 'Noch kein Report vorhanden. Warte auf den ersten Scan.';
-      DATA = [];
-    }
-  } catch (e) {
-    document.getElementById('scan-info').textContent = 'Fehler beim Laden der Daten.';
-    DATA = [];
-  }
-
-  updateStats();
-  renderTable();
-  btn.classList.remove('loading');
-  btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg> Sync';
-}
-
-// Event listeners
-document.getElementById('search').addEventListener('input', renderTable);
-document.getElementById('medium-filter').addEventListener('change', renderTable);
-
-document.querySelectorAll('.tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-    ACTIVE_TAB = tab.dataset.tab;
-    renderTable();
-  });
-});
-
-document.querySelectorAll('thead th[data-sort]').forEach(th => {
-  th.addEventListener('click', () => {
-    const col = th.dataset.sort;
-    const map = { delta: 'Veraenderung_seit_gestern', medium: 'Medium', journalist: 'Journalist', status: 'Was_ist_anders', neues_medium: 'Neues_Medium_Hinweis', linkedin: 'LinkedIn_Hinweis', aktion: 'Empfohlene_Aktion' };
-    const sortCol = map[col] || col;
-    if (SORT.col === sortCol) SORT.dir = SORT.dir === 'asc' ? 'desc' : 'asc';
-    else { SORT.col = sortCol; SORT.dir = 'asc'; }
-    renderTable();
-  });
-});
-
-// Load on start
-loadData();
+const R='Dante-sys-arch/te-presseverteiler-agen',B='main';let D=[],S={col:'Medium',dir:'asc'},T='all';
+function c(w){if(!w)return'x';if(w.includes('Medienwechsel')||w.includes('anderem Medium')||w.includes('LinkedIn bestaetigt'))return'ch';if(w.includes('bestaetigt'))return'ok';if(w.includes('schwacher')||w.includes('Weitere')||w.includes('Nichts'))return'wk';if(w.includes('nicht erreichbar')||w.includes('nicht mehr'))return'nf';return'wk'}
+function sb(w){const x=c(w),l={ch:'Wechsel',ok:'Bestätigt',wk:'Prüfen',nf:'Fehler',x:'—'},b={ch:'b-ch',ok:'b-ok',wk:'b-wk',nf:'b-nf',x:'b-un'};return`<span class="bc ${b[x]}">${l[x]}</span>`}
+function db(d){if(!d)return'';const m={VERAENDERT:'b-nw',NEU:'b-li',UNVERAENDERT:'b-un',ERSTLAUF:'b-un',BEREITS_BEKANNT:'b-un'};return`<span class="bc ${m[d]||'b-un'}">${d}</span>`}
+function kb(s){const v=parseInt(s)||0;let d='kl',cl='var(--r)';if(v>=80){d='kh';cl='var(--g)'}else if(v>=50){d='km';cl='var(--a)'}return`<span class="kb"><span class="kd ${d}"></span><span style="color:${cl}">${v}%</span></span>`}
+function rn(){let r=[...D];const q=document.getElementById('q').value.toLowerCase(),m=document.getElementById('mf').value;
+if(q)r=r.filter(x=>(x.Journalist||'').toLowerCase().includes(q)||(x.Medium||'').toLowerCase().includes(q));
+if(m)r=r.filter(x=>x.Medium===m);
+if(T==='changed')r=r.filter(x=>c(x.Was_ist_anders)==='ch');
+else if(T==='confirmed')r=r.filter(x=>c(x.Was_ist_anders)==='ok');
+else if(T==='weak')r=r.filter(x=>['wk','nf'].includes(c(x.Was_ist_anders)));
+else if(T==='delta')r=r.filter(x=>['VERAENDERT','NEU'].includes(x.Veraenderung_seit_gestern));
+r.sort((a,b)=>{const va=(a[S.col]||'').toString().toLowerCase(),vb=(b[S.col]||'').toString().toLowerCase();return S.dir==='asc'?va.localeCompare(vb):vb.localeCompare(va)});
+const tb=document.getElementById('tb'),em=document.getElementById('em');
+if(!r.length){tb.innerHTML='';em.style.display='block';return}em.style.display='none';
+tb.innerHTML=r.map(x=>`<tr><td>${db(x.Veraenderung_seit_gestern)}</td><td><strong>${x.Medium||''}</strong></td><td>${x.Journalist||''}</td><td>${sb(x.Was_ist_anders)}</td><td>${kb(x.Konfidenz_Score)}</td><td>${x.Neues_Medium_Hinweis||x.Gefunden_bei||''}</td><td>${x.LinkedIn_Hinweis==='Ja'?'<span class="bc b-li">LinkedIn</span>':''}</td><td style="font-size:.72rem">${x.Empfohlene_Aktion||''}</td><td style="max-width:220px;font-size:.72rem;color:var(--mut)">${(x.Kommentar||'').slice(0,100)}</td></tr>`).join('')}
+function st(){const ok=D.filter(x=>c(x.Was_ist_anders)==='ok').length,ch=D.filter(x=>c(x.Was_ist_anders)==='ch').length,wk=D.filter(x=>['wk','nf'].includes(c(x.Was_ist_anders))).length,li=D.filter(x=>x.LinkedIn_Hinweis==='Ja').length,dl=D.filter(x=>['VERAENDERT','NEU'].includes(x.Veraenderung_seit_gestern)).length;
+document.getElementById('s1').textContent=ok;document.getElementById('s2').textContent=ch;document.getElementById('s3').textContent=wk;document.getElementById('s4').textContent=li;document.getElementById('s5').textContent=dl;document.getElementById('s6').textContent=D.length;
+document.getElementById('t1').textContent=ch;document.getElementById('t2').textContent=ok;document.getElementById('t3').textContent=wk;document.getElementById('t4').textContent=dl;
+const md=[...new Set(D.map(x=>x.Medium).filter(Boolean))].sort(),sl=document.getElementById('mf'),cv=sl.value;
+sl.innerHTML='<option value="">Alle Medien</option>'+md.map(m=>`<option value="${m}">${m}</option>`).join('');sl.value=cv}
+async function ld(){const btn=document.querySelector('.sync');btn.classList.add('ld');btn.textContent='Laden...';
+try{const res=await fetch(`https://raw.githubusercontent.com/${R}/${B}/docs/dashboard.json?t=${Date.now()}`);
+if(res.ok){const j=await res.json();D=j.rows||[];document.getElementById('si').textContent=`Letzter Scan: ${j.scan_date||'—'} · ${D.length} Journalisten`}
+else{document.getElementById('si').textContent='Noch kein Report. Warte auf ersten Scan.';D=[]}}
+catch(e){document.getElementById('si').textContent='Fehler beim Laden.';D=[]}
+st();rn();btn.classList.remove('ld');btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>Sync'}
+document.getElementById('q').addEventListener('input',rn);document.getElementById('mf').addEventListener('change',rn);
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('act'));t.classList.add('act');T=t.dataset.tab;rn()}));
+document.querySelectorAll('thead th[data-sort]').forEach(th=>th.addEventListener('click',()=>{const mp={delta:'Veraenderung_seit_gestern',medium:'Medium',journalist:'Journalist',status:'Was_ist_anders',konfidenz:'Konfidenz_Score',neues_medium:'Neues_Medium_Hinweis',linkedin:'LinkedIn_Hinweis',aktion:'Empfohlene_Aktion'},col=mp[th.dataset.sort]||th.dataset.sort;if(S.col===col)S.dir=S.dir==='asc'?'desc':'asc';else{S.col=col;S.dir='asc'}rn()}));
+ld()
 </script>
-
-<style>
-@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-.spin { animation: spin 1s linear infinite; }
-</style>
-
 </body>
 </html>
