@@ -13,7 +13,10 @@ import os
 import re
 from dataclasses import dataclass
 
-import anthropic
+try:
+    import anthropic
+except ImportError:
+    anthropic = None
 
 
 MODEL = "claude-sonnet-4-20250514"
@@ -21,8 +24,10 @@ MAX_TOKENS = 4096
 _client: anthropic.Anthropic | None = None
 
 
-def _get_client() -> anthropic.Anthropic | None:
+def _get_client():
     global _client
+    if anthropic is None:
+        return None
     api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
         return None
