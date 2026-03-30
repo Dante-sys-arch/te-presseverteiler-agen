@@ -317,6 +317,7 @@ class Parser:
                 "linkedin": False,
                 "allgemeine_websuche": False,
                 "social_media": False,
+                "byline_recherche": False,
             }
             for snapshot in snapshots:
                 source_type = getattr(snapshot, "source_type", "")

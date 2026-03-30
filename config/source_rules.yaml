@@ -19,6 +19,11 @@ levels:
       - kress.de
       - turi2.de
       - meedia.de
+      - newsroom.de
+      - www.newsroom.de
+      - journalist.de
+      - www.journalist.de
+      - journa.host
   open_web:
     source_type: open_web
     trust_level: low

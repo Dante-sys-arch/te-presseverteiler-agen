@@ -289,6 +289,8 @@ class Crawler:
             "kress": "https://kress.de/suche?q={query}",
             "turi2": "https://turi2.de/?s={query}",
             "meedia": "https://meedia.de/?s={query}",
+            "newsroom.de": "https://www.newsroom.de/?s={query}",
+            "journalist.de": "https://www.journalist.de/startseite?search={query}",
         }
         template = templates.get(source)
         if not template:
@@ -451,6 +453,7 @@ class Crawler:
                 if idx < len(medium_urls) - 1:
                     time.sleep(self.crawl_delay_s)
 
+            is_prio1 = target.priority.strip().upper() == "PRIO 1"
             for idx, journalist in enumerate(candidate_names):
                 if self._search_available:
                     # One LinkedIn query per journalist via Serper
@@ -499,29 +502,75 @@ class Crawler:
                     results.setdefault(target.medium, []).append(result)
                     time.sleep(0.3)
 
-                    # One Twitter/X bio query per journalist via Serper
-                    twitter_query = f'"{journalist}" site:x.com OR site:twitter.com Journalist OR Redakteur OR Reporter'
-                    twitter_results = self._web_search(twitter_query, session, num=3)
-                    twitter_text = "\n".join(
-                        f"{r['title']} — {r['snippet']} ({r['link']})"
-                        for r in twitter_results
-                    ) if twitter_results else ""
-                    if twitter_text:
-                        snapshot = self._write_snapshot(f"{target.medium}_twitter_{self._safe_slug(journalist)}", twitter_text)
-                        result = CrawlResult(
-                            medium=target.medium,
-                            source_name="Twitter/X",
-                            source_type="social_media",
-                            url=f"serper:{twitter_query}",
-                            status_code=200,
-                            content=twitter_text,
-                            snapshot_path=str(snapshot),
-                            error=None,
-                            search_stage="social_media",
-                            journalist=journalist,
-                        )
-                        results.setdefault(target.medium, []).append(result)
-                        time.sleep(0.3)
+                    # Extended sources only for PRIO 1 media (saves Serper queries)
+                    if is_prio1:
+                        # Twitter/X
+                        twitter_query = f'"{journalist}" site:x.com OR site:twitter.com Journalist OR Redakteur OR Reporter'
+                        twitter_results = self._web_search(twitter_query, session, num=3)
+                        twitter_text = "\n".join(
+                            f"{r['title']} — {r['snippet']} ({r['link']})"
+                            for r in twitter_results
+                        ) if twitter_results else ""
+                        if twitter_text:
+                            snapshot = self._write_snapshot(f"{target.medium}_twitter_{self._safe_slug(journalist)}", twitter_text)
+                            result = CrawlResult(
+                                medium=target.medium, source_name="Twitter/X", source_type="social_media",
+                                url=f"serper:{twitter_query}", status_code=200, content=twitter_text,
+                                snapshot_path=str(snapshot), error=None, search_stage="social_media", journalist=journalist,
+                            )
+                            results.setdefault(target.medium, []).append(result)
+                            time.sleep(0.3)
+
+                        # XING (important for DACH)
+                        xing_query = f'"{journalist}" site:xing.com {target.medium}'
+                        xing_results = self._web_search(xing_query, session, num=3)
+                        xing_text = "\n".join(
+                            f"{r['title']} — {r['snippet']} ({r['link']})"
+                            for r in xing_results
+                        ) if xing_results else ""
+                        if xing_text:
+                            snapshot = self._write_snapshot(f"{target.medium}_xing_{self._safe_slug(journalist)}", xing_text)
+                            result = CrawlResult(
+                                medium=target.medium, source_name="XING", source_type="social_media",
+                                url=f"serper:{xing_query}", status_code=200, content=xing_text,
+                                snapshot_path=str(snapshot), error=None, search_stage="social_media", journalist=journalist,
+                            )
+                            results.setdefault(target.medium, []).append(result)
+                            time.sleep(0.3)
+
+                        # Google News Bylines (strongest proof of current employment)
+                        byline_query = f'"{journalist}" autor "{target.medium}" 2026'
+                        byline_results = self._web_search(byline_query, session, num=3)
+                        byline_text = "\n".join(
+                            f"{r['title']} — {r['snippet']} ({r['link']})"
+                            for r in byline_results
+                        ) if byline_results else ""
+                        if byline_text:
+                            snapshot = self._write_snapshot(f"{target.medium}_byline_{self._safe_slug(journalist)}", byline_text)
+                            result = CrawlResult(
+                                medium=target.medium, source_name="Byline-Recherche", source_type="open_web",
+                                url=f"serper:{byline_query}", status_code=200, content=byline_text,
+                                snapshot_path=str(snapshot), error=None, search_stage="byline_recherche", journalist=journalist,
+                            )
+                            results.setdefault(target.medium, []).append(result)
+                            time.sleep(0.3)
+
+                        # Bluesky / journa.host
+                        bsky_query = f'"{journalist}" site:bsky.app OR site:journa.host'
+                        bsky_results = self._web_search(bsky_query, session, num=2)
+                        bsky_text = "\n".join(
+                            f"{r['title']} — {r['snippet']} ({r['link']})"
+                            for r in bsky_results
+                        ) if bsky_results else ""
+                        if bsky_text:
+                            snapshot = self._write_snapshot(f"{target.medium}_bsky_{self._safe_slug(journalist)}", bsky_text)
+                            result = CrawlResult(
+                                medium=target.medium, source_name="Bluesky", source_type="social_media",
+                                url=f"serper:{bsky_query}", status_code=200, content=bsky_text,
+                                snapshot_path=str(snapshot), error=None, search_stage="social_media", journalist=journalist,
+                            )
+                            results.setdefault(target.medium, []).append(result)
+                            time.sleep(0.3)
                 else:
                     # Fallback: old Bing-based approach for first 5 only
                     if idx < 5:

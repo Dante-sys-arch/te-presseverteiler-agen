@@ -20,3 +20,23 @@ sources:
     target_pages:
       - https://meedia.de/
       - https://meedia.de/news/
+  - name: newsroom.de
+    domain: newsroom.de
+    trust: mittel
+    source_priority: mittel
+    target_pages:
+      - https://www.newsroom.de/
+      - https://www.newsroom.de/news/
+  - name: journalist.de
+    domain: journalist.de
+    trust: hoch
+    source_priority: hoch
+    target_pages:
+      - https://www.journalist.de/
+      - https://www.journalist.de/startseite/meldungen
+  - name: journa.host
+    domain: journa.host
+    trust: niedrig
+    source_priority: niedrig
+    target_pages:
+      - https://journa.host/public/local
