@@ -110,13 +110,25 @@ def run_pipeline(base_dir: Path) -> Path:
     reporter = Reporter(reports_dir)
     updater = Updater(master_file, base_dir / "backups")
 
-    raw = crawler.crawl()
+    raw = {}
+    try:
+        raw = crawler.crawl()
+        print(f"[Crawler] {sum(len(v) for v in raw.values())} Ergebnisse von {len(raw)} Quellen")
+    except Exception as exc:
+        print(f"[Crawler] FEHLER: {exc} — fahre mit leeren Ergebnissen fort")
+
     scan_scope_media = {
         medium
         for medium, infos in raw.items()
         if any(getattr(info, "source_type", "") == "official_medium" for info in infos)
     }
-    structured = parser.parse_structured(raw)
+
+    try:
+        structured = parser.parse_structured(raw)
+    except Exception as exc:
+        print(f"[Parser] FEHLER: {exc}")
+        structured = {}
+
     medium_recherche_detail_rows = [
         row
         for payload in structured.values()

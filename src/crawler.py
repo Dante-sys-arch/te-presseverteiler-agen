@@ -363,17 +363,26 @@ class Crawler:
         source_priority: str = "",
         search_stage: str = "",
         journalist: str = "",
+        max_retries: int = 2,
     ) -> CrawlResult:
         status_code: int | None = None
         content = ""
         error: str | None = None
-        try:
-            response = session.get(url, timeout=self.timeout_s)
-            status_code = response.status_code
-            response.raise_for_status()
-            content = response.text
-        except requests.RequestException as exc:
-            error = str(exc)
+        for attempt in range(max_retries + 1):
+            try:
+                response = session.get(url, timeout=self.timeout_s)
+                status_code = response.status_code
+                if status_code in (429, 503) and attempt < max_retries:
+                    time.sleep(2 * (attempt + 1))
+                    continue
+                response.raise_for_status()
+                content = response.text
+                error = None
+                break
+            except requests.RequestException as exc:
+                error = str(exc)
+                if attempt < max_retries:
+                    time.sleep(1.5 * (attempt + 1))
 
         snapshot = self._write_snapshot(f"{medium}_{source_name}", content)
         return CrawlResult(

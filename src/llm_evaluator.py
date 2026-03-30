@@ -177,7 +177,12 @@ REGELN:
 - ACHTUNG: Freie Journalisten schreiben für MEHRERE Medien — das ist KEIN Wechsel!
 - ACHTUNG: Zusammengeführte Redaktionen (z.B. FAZ/FAS, WELT/WamS) sind KEIN Wechsel!
 - ACHTUNG: Wenn jemand in einem Artikel eines anderen Mediums nur ZITIERT wird, ist das KEIN Wechsel!
-- Nur echte Arbeitgeberwechsel als "gewechselt" markieren"""
+- Nur echte Arbeitgeberwechsel als "gewechselt" markieren
+- NIEMALS Informationen erfinden oder halluzinieren. Nur das bewerten was in der Evidence steht.
+- Wenn die Evidence nicht ausreicht: "unklar" mit "nicht genug Belege" als Begründung.
+- Wenn gar keine Evidence vorhanden: "nicht_gefunden".
+- Bei widersprüchlichen Quellen: die aktuellere und offiziellere Quelle bevorzugen.
+- "quellen_anzahl" = tatsächliche Anzahl verschiedener Quellen die den Status belegen."""
 
     try:
         response = client.messages.create(
