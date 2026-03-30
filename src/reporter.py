@@ -30,6 +30,10 @@ MAIN_COLUMNS = [
     "Empfohlene_Aktion",
     "Pruefen",
     "Kommentar",
+    "Konfidenz_Score",
+    "Konfidenz_Detail",
+    "Byline_gefunden",
+    "Tage_nicht_gefunden",
 ]
 
 

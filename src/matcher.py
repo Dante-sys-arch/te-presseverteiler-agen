@@ -836,6 +836,86 @@ class Matcher:
                     source_parts.append("open_web")
                 source = ", ".join(dict.fromkeys(source_parts))
                 empfehlung = self._recommended_action(change_flags)
+
+                # --- Konfidenz-Score (0-100) ---
+                konfidenz = 0
+                konfidenz_faktoren = []
+                # Official evidence is strongest
+                if reliable_evidence:
+                    konfidenz += 40
+                    konfidenz_faktoren.append("offizielle Seite")
+                elif official_match and match_score >= 60:
+                    konfidenz += 25
+                    konfidenz_faktoren.append("Name auf Mediumsseite")
+                # LinkedIn confirmation
+                if linkedin_mentions:
+                    linkedin_strong = any(e.entscheidung in ("LinkedIn bestaetigt neues Medium", "Journalist bestaetigt") for e in evaluated_linkedin)
+                    if linkedin_strong:
+                        konfidenz += 30
+                        konfidenz_faktoren.append("LinkedIn-Profil")
+                    else:
+                        konfidenz += 10
+                        konfidenz_faktoren.append("LinkedIn-Erwähnung")
+                # Industry/Branche
+                if hint_matches:
+                    konfidenz += 20
+                    konfidenz_faktoren.append("Branchenquelle")
+                # Web mentions
+                if open_web_mentions:
+                    web_strong = any(e.entscheidung in ("Bei anderem Medium gefunden", "Journalist bestaetigt") for e in evaluated_web)
+                    if web_strong:
+                        konfidenz += 15
+                        konfidenz_faktoren.append("Web-Profil")
+                    else:
+                        konfidenz += 5
+                        konfidenz_faktoren.append("Web-Erwähnung")
+                # Byline check: journalist name found in article context on official pages
+                byline_found = False
+                for doc in official_documents:
+                    page_type = str(doc.get("page_type", ""))
+                    if page_type in ("autorenseite", "team", "redaktion"):
+                        text_lower = str(doc.get("text", "")).lower()
+                        name_lower = self._name(master).lower()
+                        if name_lower in text_lower:
+                            # Check for article byline patterns
+                            import re as _re
+                            byline_patterns = [
+                                f"von {name_lower}",
+                                f"autor: {name_lower}",
+                                f"author: {name_lower}",
+                                f"{name_lower}, redakteur",
+                                f"{name_lower}, korrespondent",
+                                f"{name_lower}, reporter",
+                            ]
+                            if any(p in text_lower for p in byline_patterns):
+                                byline_found = True
+                                break
+                if byline_found:
+                    konfidenz += 25
+                    konfidenz_faktoren.append("Byline/Autorenseite")
+                    if "Journalist bestaetigt" not in change_flags:
+                        change_flags = ["Journalist bestaetigt"] + [f for f in change_flags if f != "Nur schwacher Hinweis" and f != "Nichts Belastbares gefunden"]
+
+                # Multi-source bonus
+                source_count = len(konfidenz_faktoren)
+                if source_count >= 3:
+                    konfidenz += 10
+                    konfidenz_faktoren.append(f"{source_count} unabhängige Quellen")
+                elif source_count >= 2:
+                    konfidenz += 5
+
+                konfidenz = min(konfidenz, 100)
+
+                # Confidence label
+                if konfidenz >= 80:
+                    konfidenz_label = f"{konfidenz}% — Hoch ({', '.join(konfidenz_faktoren)})"
+                elif konfidenz >= 50:
+                    konfidenz_label = f"{konfidenz}% — Mittel ({', '.join(konfidenz_faktoren)})"
+                elif konfidenz >= 20:
+                    konfidenz_label = f"{konfidenz}% — Niedrig ({', '.join(konfidenz_faktoren)})"
+                else:
+                    konfidenz_label = f"{konfidenz}% — Sehr niedrig"
+
                 rows.append(
                     {
                         "medium": medium,
@@ -857,6 +937,9 @@ class Matcher:
                         "quellenbasis": quellenbasis,
                         "email_typ_bewertung": email_typ_bewertung,
                         "telefon_typ_bewertung": telefon_typ_bewertung,
+                        "konfidenz_score": konfidenz,
+                        "konfidenz_detail": konfidenz_label,
+                        "byline_gefunden": "Ja" if byline_found else "Nein",
                     }
                 )
                 for stage, details in (

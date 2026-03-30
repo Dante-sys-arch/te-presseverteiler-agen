@@ -84,6 +84,9 @@ class DiffEngine:
                     "Empfohlene_Aktion": row.get("empfohlene_aktion", "Prüfen"),
                     "Pruefen": row.get("pruefen", "Ja"),
                     "Kommentar": row.get("kommentar", ""),
+                    "Konfidenz_Score": row.get("konfidenz_score", 0),
+                    "Konfidenz_Detail": row.get("konfidenz_detail", ""),
+                    "Byline_gefunden": row.get("byline_gefunden", "Nein"),
                 }
             )
         return output
