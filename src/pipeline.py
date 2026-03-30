@@ -13,6 +13,7 @@ from reporter import Reporter
 from updater import Updater
 from llm_evaluator import evaluate_journalist_snippets, LLMJournalistStatus, fetch_and_read_url
 from history import annotate_changes, save_snapshot
+from email_patterns import learn_email_patterns, generate_update_suggestions
 
 
 def _needs_llm_review(row: dict) -> bool:
@@ -196,6 +197,12 @@ def run_pipeline(base_dir: Path) -> Path:
     unchanged = sum(1 for r in delta_rows if r.get("Veraenderung_seit_gestern") == "UNVERAENDERT")
     print(f"[History] {changed} verändert, {unchanged} unverändert seit letztem Scan. Snapshot: {snapshot_path}")
 
+    # === Email Patterns & Master Update Suggestions ===
+    master_contacts = matcher.load_master_contacts()
+    email_patterns = learn_email_patterns(master_contacts)
+    update_suggestions = generate_update_suggestions(delta_rows, master_contacts, email_patterns)
+    print(f"[Updates] {len(email_patterns)} E-Mail-Muster gelernt, {len(update_suggestions)} Update-Vorschläge generiert")
+
     _update_plan = updater.prepare(approved_changes={"delta": delta_rows})
     report_path = reporter.write(
         delta_rows,
@@ -205,6 +212,7 @@ def run_pipeline(base_dir: Path) -> Path:
         matching_detail_rows=matching_detail_rows,
         web_research_detail_rows=web_research_detail_rows,
         treffer_auswertung_detail_rows=treffer_auswertung_detail_rows,
+        update_suggestions=update_suggestions,
     )
 
     # === Dashboard JSON Export ===

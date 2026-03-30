@@ -53,6 +53,7 @@ class Reporter:
         matching_detail_rows: list[dict] | None = None,
         web_research_detail_rows: list[dict] | None = None,
         treffer_auswertung_detail_rows: list[dict] | None = None,
+        update_suggestions: list[dict] | None = None,
     ) -> Path:
         self.reports_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -145,5 +146,35 @@ class Reporter:
             ]
             treffer_df = pd.DataFrame(treffer_auswertung_detail_rows or []).reindex(columns=treffer_columns)
             treffer_df.to_excel(writer, sheet_name="Treffer_Auswertung_Detail", index=False)
+
+            # Update suggestions sheet
+            if update_suggestions:
+                update_columns = [
+                    "Aktion",
+                    "Medium",
+                    "Journalist",
+                    "Feld",
+                    "Alter_Wert",
+                    "Neuer_Wert",
+                    "Konfidenz",
+                    "Begruendung",
+                    "Zeile_im_Master",
+                ]
+                update_rows = [
+                    {
+                        "Aktion": s.get("aktion", ""),
+                        "Medium": s.get("medium", ""),
+                        "Journalist": s.get("journalist", ""),
+                        "Feld": s.get("feld", ""),
+                        "Alter_Wert": s.get("alter_wert", ""),
+                        "Neuer_Wert": s.get("neuer_wert", ""),
+                        "Konfidenz": s.get("konfidenz", 0),
+                        "Begruendung": s.get("begruendung", ""),
+                        "Zeile_im_Master": s.get("zeile", 0),
+                    }
+                    for s in update_suggestions
+                ]
+                update_df = pd.DataFrame(update_rows).reindex(columns=update_columns)
+                update_df.to_excel(writer, sheet_name="Master_Update_Vorschlaege", index=False)
 
         return report_path
